@@ -292,15 +292,6 @@ namespace record_windows
 			m_amplitude = -160;
 			m_maxAmplitude = -160;
 
-			if (m_mfStarted)
-			{
-				hr = MFShutdown();
-				if (SUCCEEDED(hr))
-				{
-					m_mfStarted = false;
-				}
-			}
-
 			SafeRelease(m_pSource);
 			SafeRelease(m_pPresentationDescriptor);
 			SafeRelease(m_pWriter);
@@ -317,6 +308,12 @@ namespace record_windows
 	HRESULT Recorder::Dispose()
 	{
 		HRESULT hr = EndRecording();
+
+		if (m_mfStarted)
+		{
+			MFShutdown();
+			m_mfStarted = false;
+		}
 
 		if (m_hFlushEvent)
 		{
