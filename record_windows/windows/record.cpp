@@ -265,20 +265,21 @@ namespace record_windows
 		}
 
 		// Phase 2: Clean up resources WITH the lock
+		// Cleanup is best-effort — don't propagate shutdown/finalize errors
+		// as they are expected during teardown (e.g., MF_E_SHUTDOWN)
 		{
 			AutoLock lock(m_critsec);
-			HRESULT hr = S_OK;
 
 			SafeRelease(m_pReader);
 
 			if (m_pSource)
 			{
-				hr = m_pSource->Shutdown();
+				m_pSource->Shutdown();
 			}
 
 			if (m_pWriter)
 			{
-				hr = m_pWriter->Finalize();
+				m_pWriter->Finalize();
 			}
 
 			if (m_pConfig && m_pConfig->encoderName == AudioEncoder().wav) {
@@ -301,7 +302,7 @@ namespace record_windows
 
 			m_bStopping = false;
 
-			return hr;
+			return S_OK;
 		}
 	}
 
