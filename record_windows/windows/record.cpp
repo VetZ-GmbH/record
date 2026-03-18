@@ -32,6 +32,7 @@ namespace record_windows
 		m_recordingPath(std::wstring()),
 		m_pMediaType(NULL)
 	{
+		m_hFlushEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 	}
 
 	Recorder::~Recorder()
@@ -274,15 +275,6 @@ namespace record_windows
 		m_amplitude = -160;
 		m_maxAmplitude = -160;
 
-		if (m_mfStarted)
-		{
-			hr = MFShutdown();
-			if (SUCCEEDED(hr))
-			{
-				m_mfStarted = false;
-			}
-		}
-
 		SafeRelease(m_pSource);
 		SafeRelease(m_pPresentationDescriptor);
 		SafeRelease(m_pWriter);
@@ -296,6 +288,12 @@ namespace record_windows
 	HRESULT Recorder::Dispose()
 	{
 		HRESULT hr = EndRecording();
+
+		if (m_mfStarted)
+		{
+			MFShutdown();
+			m_mfStarted = false;
+		}
 
 		m_stateEventHandler = nullptr;
 		m_recordEventHandler = nullptr;
