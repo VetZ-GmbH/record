@@ -258,7 +258,7 @@ namespace record_windows
 			// Stop the source first — prevents new samples from being generated
 			if (m_pSource) m_pSource->Stop();
 			// Flush drains pending OnReadSample callbacks
-			pReaderToFlush->Flush(MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+			pReaderToFlush->Flush((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM);
 			// Wait for OnFlush signal (2s timeout prevents hang on edge cases)
 			WaitForSingleObject(m_hFlushEvent, 2000);
 			SafeRelease(pReaderToFlush);
