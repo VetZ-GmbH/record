@@ -451,7 +451,7 @@ namespace record_windows
 		if (bytesPerSample == 2) { // PCM 16 bits
 			auto values = convertBytesToInt16(chunk, size);
 
-			for (DWORD i = 0; i < size; i++) {
+			for (size_t i = 0; i < values.size(); i++) {
 				int curSample = std::abs(values[i]);
 				if (curSample > maxSample) {
 					maxSample = curSample;
@@ -484,7 +484,8 @@ namespace record_windows
 	std::vector<int16_t> Recorder::convertBytesToInt16(BYTE* bytes, DWORD size)
 	{
 		// Convert to int16
-		std::vector<int16_t> values(size / 2);
+		std::vector<int16_t> values;
+		values.reserve(size / 2);
 
 		int n = 1;
 		if (*(char*)&n == 1) {
