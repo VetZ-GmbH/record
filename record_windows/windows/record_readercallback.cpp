@@ -10,6 +10,7 @@ namespace record_windows
 
 	STDMETHODIMP Recorder::OnFlush(DWORD)
 	{
+		SetEvent(m_hFlushEvent);
 		return S_OK;
 	}
 
@@ -87,8 +88,8 @@ namespace record_windows
 
 			if (SUCCEEDED(hr))
 			{
-				// Read another sample if reader still exists
-				if (m_pReader) {
+				// Read another sample if reader still exists and we're not stopping
+				if (m_pReader && !m_bStopping) {
 					hr = m_pReader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM,
 						0,
 						NULL, NULL, NULL, NULL

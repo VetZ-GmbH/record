@@ -32,6 +32,7 @@ namespace record_windows
 		m_recordingPath(std::wstring()),
 		m_pMediaType(NULL)
 	{
+		m_hFlushEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 	}
 
 	Recorder::~Recorder()
@@ -242,60 +243,86 @@ namespace record_windows
 
 	HRESULT Recorder::EndRecording()
 	{
-		AutoLock lock(m_critsec);
-		HRESULT hr = S_OK;
-
-		// Release reader callback first
-		SafeRelease(m_pReader);
-
-		if (m_pSource)
+		// Phase 1: Signal stop and flush OUTSIDE the lock
+		// (OnReadSample takes the lock too — holding it here would deadlock)
+		IMFSourceReader* pReaderToFlush = nullptr;
 		{
-			hr = m_pSource->Stop();
+			AutoLock lock(m_critsec);
+			pReaderToFlush = m_pReader;
+			if (pReaderToFlush) pReaderToFlush->AddRef();
+		}
 
-			if (SUCCEEDED(hr))
+		if (pReaderToFlush)
+		{
+			m_bStopping = true;
+			// Stop the source first — prevents new samples from being generated
+			if (m_pSource) m_pSource->Stop();
+			// Flush drains pending OnReadSample callbacks
+			pReaderToFlush->Flush(MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+			// Wait for OnFlush signal (2s timeout prevents hang on edge cases)
+			WaitForSingleObject(m_hFlushEvent, 2000);
+			SafeRelease(pReaderToFlush);
+		}
+
+		// Phase 2: Clean up resources WITH the lock
+		{
+			AutoLock lock(m_critsec);
+			HRESULT hr = S_OK;
+
+			SafeRelease(m_pReader);
+
+			if (m_pSource)
 			{
 				hr = m_pSource->Shutdown();
 			}
-		}
 
-		if (m_pWriter)
-		{
-			hr = m_pWriter->Finalize();
-		}
-
-		if (m_pConfig && m_pConfig->encoderName == AudioEncoder().wav) {
-			FillWavHeader();
-		}
-
-		m_bFirstSample = true;
-		m_llBaseTime = 0;
-		m_llLastTime = 0;
-
-		m_amplitude = -160;
-		m_maxAmplitude = -160;
-
-		if (m_mfStarted)
-		{
-			hr = MFShutdown();
-			if (SUCCEEDED(hr))
+			if (m_pWriter)
 			{
-				m_mfStarted = false;
+				hr = m_pWriter->Finalize();
 			}
+
+			if (m_pConfig && m_pConfig->encoderName == AudioEncoder().wav) {
+				FillWavHeader();
+			}
+
+			m_bFirstSample = true;
+			m_llBaseTime = 0;
+			m_llLastTime = 0;
+
+			m_amplitude = -160;
+			m_maxAmplitude = -160;
+
+			if (m_mfStarted)
+			{
+				hr = MFShutdown();
+				if (SUCCEEDED(hr))
+				{
+					m_mfStarted = false;
+				}
+			}
+
+			SafeRelease(m_pSource);
+			SafeRelease(m_pPresentationDescriptor);
+			SafeRelease(m_pWriter);
+			SafeRelease(m_pMediaType);
+			m_pConfig = nullptr;
+			m_recordingPath = std::wstring();
+
+			m_bStopping = false;
+
+			return hr;
 		}
-
-		SafeRelease(m_pSource);
-		SafeRelease(m_pPresentationDescriptor);
-		SafeRelease(m_pWriter);
-		SafeRelease(m_pMediaType);
-		m_pConfig = nullptr;
-		m_recordingPath = std::wstring();
-
-		return hr;
 	}
 
 	HRESULT Recorder::Dispose()
 	{
 		HRESULT hr = EndRecording();
+
+		if (m_hFlushEvent)
+		{
+			CloseHandle(m_hFlushEvent);
+			m_hFlushEvent = NULL;
+		}
 
 		m_stateEventHandler = nullptr;
 		m_recordEventHandler = nullptr;
