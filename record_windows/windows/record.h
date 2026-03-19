@@ -8,6 +8,7 @@
 #include <Mfreadwrite.h>
 
 #include <assert.h>
+#include <atomic>
 
 // utility functions
 #include "utils.h"
@@ -98,5 +99,7 @@ namespace record_windows
 
 		RecordState m_recordState = RecordState::stop;
 		std::unique_ptr<RecordConfig> m_pConfig;
+		HANDLE m_hFlushEvent = NULL;
+		std::atomic<bool> m_bStopping{ false };
 	};
 };
