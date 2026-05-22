@@ -179,8 +179,8 @@ class RecordLinux extends RecordPlatform {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((chunk) {
-      out.add(chunk);
-    });
+          out.add(chunk);
+        });
 
     try {
       await _callPactl(
@@ -234,10 +234,7 @@ class RecordLinux extends RecordPlatform {
       if (config.autoGain) '--property=auto_gain_control=1',
       if (config.echoCancel) '--property=echo_cancellation=1',
       if (config.noiseSuppress) '--property=noise_suppression=1',
-      if (canEncode) ...[
-        '--file-format=${config.encoder.name}',
-        if (path case final path?) path,
-      ],
+      if (canEncode) ...['--file-format=${config.encoder.name}', ?path],
     ];
 
     return args;
@@ -248,7 +245,10 @@ class RecordLinux extends RecordPlatform {
   }
 
   List<String> _getFfmpegEncoderSettings(
-      AudioEncoder encoder, String path, int bitRate) {
+    AudioEncoder encoder,
+    String path,
+    int bitRate,
+  ) {
     switch (encoder) {
       case AudioEncoder.aacLc:
         return ['-c:a', 'aac', '-b:a', '${bitRate / 1000}k', path];
@@ -273,7 +273,11 @@ class RecordLinux extends RecordPlatform {
     bool consumeOutput = true,
   }) async {
     // Force LC_ALL=C for pactl output to ensure consistent parsing
-    final process = await Process.start('pactl', arguments, environment: {"LC_ALL": "C"});
+    final process = await Process.start(
+      'pactl',
+      arguments,
+      environment: {"LC_ALL": "C"},
+    );
 
     if (onStarted != null) {
       onStarted();
@@ -329,7 +333,8 @@ class RecordLinux extends RecordPlatform {
         if (currentDeviceId != null && currentDeviceName != null) {
           if (!currentDeviceName.startsWith('Monitor of')) {
             devices.add(
-                InputDevice(id: currentDeviceId, label: currentDeviceName));
+              InputDevice(id: currentDeviceId, label: currentDeviceName),
+            );
           }
         }
       } else if (line.trim().startsWith('node.name')) {
@@ -410,7 +415,7 @@ class RecordLinux extends RecordPlatform {
       '${_getNumChannels(config)}',
       '-i',
       '-',
-      ..._getFfmpegEncoderSettings(config.encoder, path, config.bitRate)
+      ..._getFfmpegEncoderSettings(config.encoder, path, config.bitRate),
     ];
 
     _ffmpegProcess = await Process.start(_ffmpegBin, ffmpegArgs);
