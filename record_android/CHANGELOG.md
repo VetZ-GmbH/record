@@ -1,5 +1,7 @@
 ## 2.0.0
 * chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
+* chore: Move to AGP 9.x.
+* chore: Move to Kotlin Gradle DSL.
 
 ## 1.5.2
 * fix: Potential `IndexOutOfBoundsException` for AAC ADTS streaming.
