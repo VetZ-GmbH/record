@@ -1,4 +1,5 @@
 ## 2.0.0
+* chore: **Breaking change** Remove `manageAudioSession` deprecated config property.
 * chore: Completes Swift Package Manager integration.
 * chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
 

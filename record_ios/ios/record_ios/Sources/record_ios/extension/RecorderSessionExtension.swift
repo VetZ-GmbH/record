@@ -2,8 +2,6 @@ import AVFoundation
 
 extension AudioRecordingDelegate {
   func initAVAudioSession(config: RecordConfig, manageAudioSession: Bool) throws {
-    let manage = manageAudioSession && config.iosConfig.manageAudioSession
-
     let audioSession = AVAudioSession.sharedInstance()
     
     do {
@@ -20,7 +18,7 @@ extension AudioRecordingDelegate {
       }
     }
     
-    if manage {
+    if manageAudioSession {
       do {
           try audioSession.setCategory(.playAndRecord, options: AVAudioSession.CategoryOptions(config.iosConfig.categoryOptions))
       } catch {
