@@ -97,10 +97,27 @@ namespace record_windows {
 	}
 
 	RecordWindowsPlugin::~RecordWindowsPlugin() {
+		// Block any pending or future callbacks from touching members we are
+		// about to destroy. The flag is observed by the lambda queued in the
+		// `dispose` branch of HandleMethodCall (bug #52105).
+		m_is_destroying.store(true);
+
+		// Drain the static callback queue so lambdas captured with raw `this`
+		// from this plugin instance don't fire after our members are gone.
+		{
+			std::lock_guard<std::mutex> lock(callbacks_mutex);
+			std::queue<std::function<void()>> empty;
+			std::swap(callbacks, empty);
+		}
+
 		for (const auto& [recorderId, recorder] : m_recorders)
 		{
 			recorder->Dispose();
 		}
+
+		m_recorders.clear();
+		m_state_event_channels.clear();
+		m_record_event_channels.clear();
 
 		m_win_proc_delegate_unregistrator(m_window_proc_id);
 	}
@@ -251,6 +268,14 @@ namespace record_windows {
 			// referencing it may still be pending, causing access violations.
 			recorder->Dispose();
 			RecordWindowsPlugin::RunOnMainThread([this, recorderId]() -> void {
+				// If the plugin is being torn down, our `this` may already be
+				// invalid by the time this lambda runs; abort instead of touching
+				// members. The destructor also drains the callback queue, so in
+				// practice this guard catches the narrow window between the queue
+				// pop and the destructor (bug #52105).
+				if (m_is_destroying.load()) {
+					return;
+				}
 				m_recorders.erase(recorderId);
 				m_state_event_channels.erase(recorderId);
 				m_record_event_channels.erase(recorderId);

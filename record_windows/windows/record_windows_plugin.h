@@ -9,6 +9,7 @@
 #include <flutter/event_stream_handler_functions.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -89,6 +90,11 @@ namespace record_windows {
 
 		// The ID of the WindowProc delegate registration.
 		int m_window_proc_id = -1;
+
+		// Set to true at the start of the destructor so callbacks queued on the
+		// main thread via RunOnMainThread can bail out before touching members
+		// that are about to be destroyed (bug #52105).
+		std::atomic_bool m_is_destroying{false};
 	};
 
 }  // namespace record_windows
