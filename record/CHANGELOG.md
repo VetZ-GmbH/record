@@ -1,7 +1,7 @@
 ## 7.0.0
 * chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
 * Android:
-    * chore: **Breaking change** Remove background recording service. See [docs](https://github.com/llfbandit/record/blob/master/doc/bg_recording.md).
+    * chore: **Breaking change** Remove background recording service. See [docs](https://github.com/llfbandit/record/blob/main/doc/bg_recording.md).
     * chore: Move to AGP 9.x.
     * chore: Move to Kotlin Gradle DSL.
 * iOS:

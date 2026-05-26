@@ -89,10 +89,10 @@ record.dispose(); // As always, don't forget this one.
 
 ## Setup, permissions and others
 
-Background recording: See [docs](https://github.com/llfbandit/record/blob/master/doc/bg_recording.md).
+Background recording: See [docs](https://github.com/llfbandit/record/blob/main/doc/bg_recording.md).
 
 ### Android
-[Setup](https://github.com/llfbandit/record/blob/master/record_android/README.md).
+[Setup](https://github.com/llfbandit/record/blob/main/record_android/README.md).
 
 - min SDK: 23 (amrNb/amrWb: 26, Opus: 29)
 
