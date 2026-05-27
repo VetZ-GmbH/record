@@ -67,12 +67,20 @@ namespace record_windows
 							// Update total data written
 							m_dataWritten += size;
 
-							// Send data to stream when there's no writer
+							// Send data to stream when there's no writer.
+							// Capture the handler pointer by value (snapshot) instead
+							// of `this`, mirroring UpdateState's pattern. `this->m_recordEventHandler`
+							// is nulled inside Recorder::Dispose() while the lambda is
+							// still queued — re-reading it through `this` blew up with a
+							// null deref at EventStreamHandler::Success (bug #52105).
 							if (m_recordEventHandler && !m_pWriter) {
 								std::vector<uint8_t> bytes(pChunk, pChunk + size);
+								EventStreamHandler<>* handlerPtr = m_recordEventHandler;
 
-								RecordWindowsPlugin::RunOnMainThread([this, bytes]() -> void {
-									m_recordEventHandler->Success(std::make_unique<flutter::EncodableValue>(bytes));
+								RecordWindowsPlugin::RunOnMainThread([handlerPtr, bytes]() -> void {
+									if (handlerPtr) {
+										handlerPtr->Success(std::make_unique<flutter::EncodableValue>(bytes));
+									}
 								});
 							}
 
