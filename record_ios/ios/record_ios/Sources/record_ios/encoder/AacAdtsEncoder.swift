@@ -58,15 +58,21 @@ class AacAdtsEncoder: AudioEnc {
   }
   
   func encode(buffer: AVAudioPCMBuffer) -> [Data] {
-    guard let converter = audioConverter, let channelData = buffer.int16ChannelData else {
+    guard let channelData = buffer.int16ChannelData else {
       return []
     }
-    
+
     let frameCount = Int(buffer.frameLength)
     let channels = Int(buffer.format.channelCount)
 
     // Buffer PCM samples
     bufferLock.lock()
+
+    guard let converter = audioConverter else {
+      bufferLock.unlock()
+      return []
+    }
+
     pcmBuffer.reserveCapacity(pcmBuffer.count + frameCount * channels)
     
     // interleave channels
@@ -216,12 +222,11 @@ class AacAdtsEncoder: AudioEnc {
   }
   
   func dispose() {
+    bufferLock.lock()
     if let converter = audioConverter {
       AudioConverterDispose(converter)
       audioConverter = nil
     }
-    
-    bufferLock.lock()
     pcmBuffer.removeAll(keepingCapacity: true)
     pcmBufferReadIndex = 0
     bufferLock.unlock()
