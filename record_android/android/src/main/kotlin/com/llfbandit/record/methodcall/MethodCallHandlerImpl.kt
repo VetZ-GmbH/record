@@ -9,7 +9,6 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import java.util.Objects
 import java.util.concurrent.ConcurrentHashMap
 
 class MethodCallHandlerImpl(
@@ -92,7 +91,7 @@ class MethodCallHandlerImpl(
     val codec = call.argument<String>("encoder")
 
     val isSupported = AudioFormats.isEncoderSupported(
-      AudioFormats.getMimeType(Objects.requireNonNull(codec))
+      AudioFormats.getMimeType(codec)
     )
 
     result.success(isSupported)
