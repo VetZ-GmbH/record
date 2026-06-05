@@ -28,6 +28,7 @@ class MediaCodecEncoder(
   private var mInputBufferPosition: Long = 0
   private var mInputBufferIndex = -1
   private var mContainerTrack = 0
+  private var mContainerSetup = false
 
   // Semaphore to signal the end of encoding
   @Volatile private var mStoppedCompleter: Semaphore? = null
@@ -226,6 +227,9 @@ class MediaCodecEncoder(
     }
 
     override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
+      if (mContainerSetup) return
+      mContainerSetup = true
+
       mContainerTrack = mContainer?.addTrack(format) ?: -1
       mContainer?.start()
 
