@@ -181,9 +181,11 @@ class RecordThread(
 
   private fun recordState() {
     mIsRecording.set(true)
-    mIsPaused.set(false)
+    val wasPaused = mIsPaused.getAndSet(false)
 
-    mIsPausedSem.release()
+    if (wasPaused) {
+      mIsPausedSem.release()
+    }
 
     recorderListener.onRecord()
   }
