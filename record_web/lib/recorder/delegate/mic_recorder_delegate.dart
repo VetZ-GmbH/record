@@ -82,19 +82,18 @@ class MicRecorderDelegate extends RecorderDelegate {
   @override
   Future<Stream<Uint8List>> startStream(RecordConfig config) async {
     await _recordStreamCtrl?.close();
-    final streamController = StreamController<Uint8List>();
+    _recordStreamCtrl = StreamController<Uint8List>();
 
     try {
       await _start(config, isStream: true);
     } catch (err) {
       debugPrint(err.toString());
-      await streamController.close();
+      await _recordStreamCtrl?.close();
+      _recordStreamCtrl = null;
       rethrow;
     }
 
-    _recordStreamCtrl = streamController;
-
-    return streamController.stream;
+    return _recordStreamCtrl!.stream;
   }
 
   @override
