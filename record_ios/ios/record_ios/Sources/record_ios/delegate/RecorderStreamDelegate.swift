@@ -163,7 +163,7 @@ class RecorderStreamDelegate: NSObject, AudioRecordingStreamDelegate {
   ) -> Void {
 
     guard let convertedBuffer = convertBuffer(buffer: buffer, dstFormat: dstFormat, converter: converter) else {
-      stop { path in }
+      DispatchQueue.main.async { self.stop { _ in } }
       return
     }
 
@@ -171,7 +171,7 @@ class RecorderStreamDelegate: NSObject, AudioRecordingStreamDelegate {
 
     if config?.encoder == AudioEncoder.aacLc.rawValue {
       guard let dataList = encodeAac(buffer: convertedBuffer) else {
-        stop { path in }
+        DispatchQueue.main.async { self.stop { _ in } }
         return
       }
 
