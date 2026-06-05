@@ -69,7 +69,8 @@ class RecorderFileDelegate: NSObject, AudioRecordingFileDelegate, AVAudioRecorde
   }
 
   func resume() {
-    m_audioRecorder?.record()
+    guard let recorder = m_audioRecorder else { return }
+    recorder.record()
     m_onRecord()
   }
 
