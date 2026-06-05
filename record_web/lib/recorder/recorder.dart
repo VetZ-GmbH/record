@@ -36,15 +36,20 @@ class Recorder {
   }
 
   Future<bool> hasPermission({bool request = true}) async {
-    final permissions = web.window.navigator.permissions;
-    final permissionStatus = await permissions
-        .query(_PermissionDescriptor(name: 'microphone'))
-        .toDart;
+    try {
+      final permissions = web.window.navigator.permissions;
+      final permissionStatus = await permissions
+          .query(_PermissionDescriptor(name: 'microphone'))
+          .toDart;
 
-    final isGranted = permissionStatus.state == 'granted';
-    if (!isGranted && request) return _requestPermission();
+      final isGranted = permissionStatus.state == 'granted';
+      if (!isGranted && request) return _requestPermission();
 
-    return isGranted;
+      return isGranted;
+    } catch (_) {
+      if (request) return _requestPermission();
+      return false;
+    }
   }
 
   Future<List<InputDevice>> listInputDevices() async {
