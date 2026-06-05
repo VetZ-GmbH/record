@@ -28,7 +28,7 @@ class RecordThread(
   // Signals whether a recording is paused (true) or not (false).
   private val mIsPaused = AtomicBoolean(false)
   private val mIsPausedSem = Semaphore(0, true)
-  private var mHasBeenCanceled = false
+  @Volatile private var mHasBeenCanceled = false
 
   private var mRecordThread: Thread? = null
   // Bridge for on-demand amplitude
