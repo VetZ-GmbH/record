@@ -62,7 +62,7 @@ class MediaRecorderDelegate extends RecorderDelegate {
       _elapsedTime.stop();
 
       try {
-        _audioCtx?.suspend();
+        await _audioCtx?.suspend().toDart;
       } catch (e) {
         debugPrint(e.toString());
       }
@@ -78,7 +78,7 @@ class MediaRecorderDelegate extends RecorderDelegate {
       _elapsedTime.start();
 
       try {
-        _audioCtx?.resume();
+        await _audioCtx?.resume().toDart;
 
         if (_analyser case final analyser?) {
           // Browsers may disconnet analyzer. Force reconnection.
