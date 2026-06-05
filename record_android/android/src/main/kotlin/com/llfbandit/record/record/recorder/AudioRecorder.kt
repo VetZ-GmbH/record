@@ -84,10 +84,8 @@ class AudioRecorder(
     this.stopCb = stopCb
 
     if (recorderThread != null) {
-      if (recorderThread?.isRecording() ?: false) {
+      if (recorderThread?.isRecording() == true) {
         recorderThread?.stopRecording()
-      } else {
-        onStop()
       }
     } else {
       onStop()
@@ -146,6 +144,8 @@ class AudioRecorder(
   }
 
   override fun onStop() {
+    recorderThread = null
+
     // Restore audio manager properties
     restoreAudioManagerSettings()
 
