@@ -158,8 +158,12 @@ class RecorderWrapper(
   }
 
   private fun start(config: RecordConfig, result: MethodChannel.Result) {
-    recorder!!.start(config)
-    result.success(null)
+    try {
+      recorder!!.start(config)
+      result.success(null)
+    } catch (e: Exception) {
+      result.error("record", e.message, e.cause)
+    }
   }
 
   ///////////////////////////////////////////////////////////
