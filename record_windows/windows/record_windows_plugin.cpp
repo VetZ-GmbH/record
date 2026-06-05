@@ -410,15 +410,15 @@ namespace record_windows {
 		{
 			LPWSTR friendlyName = NULL;
 			UINT32 friendlyNameLength = 0;
-			LPWSTR id;
+			LPWSTR id = NULL;
 			UINT32 idLength = 0;
 
-			hr = ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ENDPOINT_ID, &id, &idLength);
-			if (SUCCEEDED(hr))
+			HRESULT deviceHr = ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ENDPOINT_ID, &id, &idLength);
+			if (SUCCEEDED(deviceHr))
 			{
-				hr = ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &friendlyName, &friendlyNameLength);
+				deviceHr = ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &friendlyName, &friendlyNameLength);
 			}
-			if (SUCCEEDED(hr))
+			if (SUCCEEDED(deviceHr))
 			{
 				devices.push_back(EncodableMap({
 					{EncodableValue("id"), EncodableValue(toString(id))},
