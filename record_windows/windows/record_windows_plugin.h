@@ -80,6 +80,10 @@ namespace record_windows {
 		std::map<std::string, std::unique_ptr<EventChannel<EncodableValue>>> m_state_event_channels{};
 		std::map<std::string, std::unique_ptr<EventChannel<EncodableValue>>> m_record_event_channels{};
 
+		// Shared liveness flag: set to false in the destructor so any lambdas
+		// still queued in RunOnMainThread that capture `this` can skip safely.
+		std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
+
 		// Called for top-level WindowProc delegation.
 		std::optional<LRESULT> HandleWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);
 

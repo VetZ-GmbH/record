@@ -102,11 +102,14 @@ namespace record_windows
 		}
 		else
 		{
-			// Reader error.
+			// Reader error — defer Stop() to the main thread so the source reader
+			// is not torn down from within its own async callback.
 			auto errorText = std::system_category().message(hrStatus);
 			printf("Record: Error when reading sample (0x%X)\n%s\n", hrStatus, errorText.c_str());
 
-			Stop();
+			RecordWindowsPlugin::RunOnMainThread([this]() -> void {
+				Stop();
+			});
 		}
 
 		return hr;

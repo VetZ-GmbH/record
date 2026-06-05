@@ -97,6 +97,8 @@ namespace record_windows {
 	}
 
 	RecordWindowsPlugin::~RecordWindowsPlugin() {
+		*m_alive = false;
+
 		for (const auto& [recorderId, recorder] : m_recorders)
 		{
 			recorder->Dispose();
@@ -250,7 +252,9 @@ namespace record_windows {
 			// destroyed. Immediate erase would destroy the Recorder while lambdas
 			// referencing it may still be pending, causing access violations.
 			recorder->Dispose();
-			RecordWindowsPlugin::RunOnMainThread([this, recorderId]() -> void {
+			auto alive = m_alive;
+			RecordWindowsPlugin::RunOnMainThread([this, alive, recorderId]() -> void {
+				if (!*alive) return;
 				m_recorders.erase(recorderId);
 				m_state_event_channels.erase(recorderId);
 				m_record_event_channels.erase(recorderId);
