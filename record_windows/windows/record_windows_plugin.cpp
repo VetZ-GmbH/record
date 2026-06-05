@@ -356,16 +356,15 @@ namespace record_windows {
 		std::unique_ptr<StreamHandler<EncodableValue>> pRecordEventHandler{static_cast<StreamHandler<EncodableValue>*>(eventRecordHandler)};
 		eventRecordChannel->SetStreamHandler(std::move(pRecordEventHandler));
 
-		// Keep channels alive for the recorder lifetime and also keep shared
-		// ownership of handlers so Recorder's weak_ptr captures remain valid
-		m_state_event_channels.insert(std::make_pair(recorderId, std::move(eventChannel)));
-		m_record_event_channels.insert(std::make_pair(recorderId, std::move(eventRecordChannel)));
-
 		Recorder* pRecorder = NULL;
 
 		HRESULT hr = Recorder::CreateInstance(eventHandler, eventRecordHandler, &pRecorder);
 		if (SUCCEEDED(hr))
 		{
+			// Keep channels alive for the recorder lifetime so handler pointers
+			// held by the recorder remain valid.
+			m_state_event_channels.insert(std::make_pair(recorderId, std::move(eventChannel)));
+			m_record_event_channels.insert(std::make_pair(recorderId, std::move(eventRecordChannel)));
 			m_recorders.insert(std::make_pair(recorderId, std::move(pRecorder)));
 		}
 
