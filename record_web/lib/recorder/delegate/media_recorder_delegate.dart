@@ -234,9 +234,7 @@ class MediaRecorderDelegate extends RecorderDelegate {
     final source = audioCtx.createMediaStreamSource(stream);
 
     final analyser = audioCtx.createAnalyser();
-    analyser.minDecibels = kMinAmplitude;
-    analyser.maxDecibels = kMaxAmplitude;
-    analyser.fftSize = 1024; // NB of samples (must be power of 2)
+    analyser.fftSize = 1024;
     analyser.smoothingTimeConstant = 0.3; // Default 0.8 is way too high
     source.connect(analyser);
 
@@ -249,14 +247,14 @@ class MediaRecorderDelegate extends RecorderDelegate {
     final analyser = _analyser;
     if (analyser == null) return kMinAmplitude;
 
-    final bufferLength = analyser.frequencyBinCount; // Always fftSize / 2
-    final dataArray = Float32List(bufferLength.toInt());
+    final dataArray = Float32List(analyser.fftSize.toInt());
     final jsArray = dataArray.toJS;
 
-    analyser.getFloatFrequencyData(jsArray);
+    analyser.getFloatTimeDomainData(jsArray);
 
-    return jsArray.toDart
-        .reduce((value, element) => math.max(value, element))
-        .toDouble();
+    final peak = jsArray.toDart.reduce((v, e) => math.max(v, e.abs()));
+    if (peak == 0) return kMinAmplitude;
+
+    return 20 * (math.log(peak) / math.ln10);
   }
 }
