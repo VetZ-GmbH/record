@@ -16,6 +16,7 @@ mixin _StateMixin {
     RecordPlatform platform,
     String recorderId,
     OnStateChanged onStateChanged,
+    Semaphore semaphore,
   ) {
     if (_stateStreamCtrl case final ctrl?) {
       return ctrl.stream;
@@ -23,26 +24,28 @@ mixin _StateMixin {
 
     _stateStreamCtrl = StreamController<RecordState>.broadcast();
 
-    _semaphore.acquire().whenComplete(
-      () {
-        _stateStreamSubscription = platform.onStateChanged(recorderId).listen(
-          (state) {
-            if (_stateStreamCtrl case final ctrl? when ctrl.hasListener) {
-              ctrl.add(state);
-            }
+    semaphore.acquire().whenComplete(() {
+      try {
+        _stateStreamSubscription = platform
+            .onStateChanged(recorderId)
+            .listen(
+              (state) {
+                if (_stateStreamCtrl case final ctrl? when ctrl.hasListener) {
+                  ctrl.add(state);
+                }
 
-            onStateChanged(state);
-          },
-          onError: (error) {
-            if (_stateStreamCtrl case final ctrl? when ctrl.hasListener) {
-              ctrl.addError(error);
-            }
-          },
-        );
-
-        _semaphore.release();
-      },
-    );
+                onStateChanged(state);
+              },
+              onError: (error) {
+                if (_stateStreamCtrl case final ctrl? when ctrl.hasListener) {
+                  ctrl.addError(error);
+                }
+              },
+            );
+      } finally {
+        semaphore.release();
+      }
+    });
 
     return _stateStreamCtrl!.stream;
   }

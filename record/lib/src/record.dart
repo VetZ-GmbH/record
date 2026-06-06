@@ -11,13 +11,13 @@ part 'part/record_convert.dart';
 part 'part/record_state.dart';
 part 'part/record_stream.dart';
 
-// Global semaphore to ensure sequential calls to platform.
-final _semaphore = Semaphore();
-
 /// Audio recorder for capturing audio from input devices.
 ///
 class AudioRecorder with _AmplitudeMixin, _StateMixin, _StreamMixin {
   final String _recorderId;
+
+  // Semaphore to ensure sequential calls to platform.
+  final _semaphore = Semaphore();
 
   Stream<RecordState>? _recordStateStream;
 
@@ -26,10 +26,10 @@ class AudioRecorder with _AmplitudeMixin, _StateMixin, _StreamMixin {
   /// Creates a new audio recorder.
   AudioRecorder() : _recorderId = UuidV4.generate() {
     _semaphore.acquire().whenComplete(
-          () => _platform
-              .create(_recorderId)
-              .whenComplete(() => _semaphore.release()),
-        );
+      () => _platform
+          .create(_recorderId)
+          .whenComplete(() => _semaphore.release()),
+    );
   }
 
   /// Starts new recording session.
@@ -39,29 +39,24 @@ class AudioRecorder with _AmplitudeMixin, _StateMixin, _StreamMixin {
   ///
   /// Output path can be retrieves when [stop] method is called.
   Future<void> start(RecordConfig config, {required String path}) async {
-    await _safeCall(
-      () {
-        _initStateStream();
-        return _platform.start(_recorderId, config, path: path);
-      },
-    );
+    _initStateStream();
+
+    await _safeCall(() => _platform.start(_recorderId, config, path: path));
   }
 
   /// Starts stream recording and returns the stream.
   ///
   /// When stopping the record, you must rely on stream close event to get
   /// full recorded data.
-  Future<Stream<Uint8List>> startStream(RecordConfig config) async {
-    final stream = await _safeCall(
-      () async {
-        await _stopRecordStream();
-        _initStateStream();
+  Future<Stream<Uint8List>> startStream(RecordConfig config) {
+    _initStateStream();
 
-        return _platform.startStream(_recorderId, config);
-      },
-    );
+    return _safeCall(() async {
+      await _stopRecordStream();
 
-    return _startRecordStream(stream);
+      final stream = await _platform.startStream(_recorderId, config);
+      return _startRecordStream(stream);
+    });
   }
 
   /// Stops recording session and release internal recorder resource.
@@ -168,11 +163,14 @@ class AudioRecorder with _AmplitudeMixin, _StateMixin, _StreamMixin {
   /// Returns [null] when not on iOS platform.
   RecordIos? get ios => _platform.getIos(_recorderId);
 
+  /// Initialize state stream.
+  /// Must be called outside of `_safeCall` to avoid deadlock.
   Stream<RecordState> _initStateStream() {
     _recordStateStream ??= _onStateChanged(
       _platform,
       _recorderId,
       _handleAmplitudeRequesting,
+      _semaphore,
     );
 
     return _recordStateStream!;
