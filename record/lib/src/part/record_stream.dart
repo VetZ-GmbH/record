@@ -27,6 +27,7 @@ mixin _StreamMixin {
   /// Stops and closes the record stream.
   Future<void> _stopRecordStream() async {
     await _recordStreamSubscription?.cancel();
+    _recordStreamSubscription = null;
     await _recordStreamCtrl?.close();
     _recordStreamCtrl = null;
   }

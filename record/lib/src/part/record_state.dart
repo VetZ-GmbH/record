@@ -53,6 +53,7 @@ mixin _StateMixin {
   /// Disposes state stream resources.
   Future<void> _disposeState() async {
     await _stateStreamSubscription?.cancel();
+    _stateStreamSubscription = null;
     await _stateStreamCtrl?.close();
     _stateStreamCtrl = null;
   }
