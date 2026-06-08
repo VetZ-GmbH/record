@@ -92,10 +92,11 @@ class AacAdtsEncoder: AudioEnc {
       let framesToEncode = Array(pcmBuffer[pcmBufferReadIndex..<endIndex])
       pcmBufferReadIndex += samplesPerFrame
       
+      guard let sampleRate = config?.sampleRate else { break }
       if let aacData = encode(
         pcmSamples: framesToEncode,
         converter: converter,
-        sampleRate: config!.sampleRate,
+        sampleRate: sampleRate,
         channels: channels) {
 
         aacDataList.append(aacData)
@@ -213,7 +214,7 @@ class AacAdtsEncoder: AudioEnc {
     adts[0] = 0xFF
     adts[1] = 0xF9
     adts[2] = UInt8((aacProfile - 1) << 6) | freqIdx << 2 | UInt8(channels >> 2)
-    adts[3] = UInt8((channels & 3) << 6 | packetLength >> 11)
+    adts[3] = UInt8((channels & 3) << 6 | (packetLength >> 11) & 0x3)
     adts[4] = UInt8((packetLength & 0x7FF) >> 3)
     adts[5] = UInt8((packetLength & 7) << 5 | 0x1F)
     adts[6] = 0xFC
