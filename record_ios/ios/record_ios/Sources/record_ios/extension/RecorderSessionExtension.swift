@@ -3,119 +3,125 @@ import AVFoundation
 extension AudioRecordingDelegate {
   @discardableResult
   func initAVAudioSession(config: RecordConfig, manageAudioSession: Bool) throws -> NSObjectProtocol {
-    let audioSession = AVAudioSession.sharedInstance()
-    
+    let session = AVAudioSession.sharedInstance()
+
+    try applyPreferredSampleRate(config.sampleRate, session: session)
+    try applyInterruptionPreference(suppressAlerts: config.audioInterruption == AudioInterruptionMode.none, session: session)
+
+    if manageAudioSession {
+      try applyCategory(AVAudioSession.CategoryOptions(config.iosConfig.categoryOptions), session: session)
+      try activateSession(session)
+    }
+
+    try applyHapticsPreference(config.iosConfig.allowHapticsAndSystemSoundsDuringRecording, session: session)
+    try applyPreferredChannelCount(config.numChannels, session: session)
+    try applyPreferredInputDevice(config.device)
+
+    return registerInterruptionObserver()
+  }
+}
+
+// MARK: - Session configuration steps
+
+private extension AudioRecordingDelegate {
+  func applyPreferredSampleRate(_ sampleRate: Int, session: AVAudioSession) throws {
     do {
-      try audioSession.setPreferredSampleRate((config.sampleRate <= 48000) ? Double(config.sampleRate) : 48000.0)
+      try session.setPreferredSampleRate(min(Double(sampleRate), 48000.0))
     } catch {
       throw RecorderError.error(message: "Failed to start recording", details: "setPreferredSampleRate: \(error.localizedDescription)")
     }
-    
-    if #available(iOS 14.5, *) {
-      do {
-        try audioSession.setPrefersNoInterruptionsFromSystemAlerts(config.audioInterruption == AudioInterruptionMode.none)
-      } catch {
-        throw RecorderError.error(message: "Failed to start recording", details: "setPrefersNoInterruptionsFromSystemAlerts: \(error.localizedDescription)")
-      }
-    }
-    
-    if manageAudioSession {
-      do {
-          try audioSession.setCategory(.playAndRecord, options: AVAudioSession.CategoryOptions(config.iosConfig.categoryOptions))
-      } catch {
-        throw RecorderError.error(message: "Failed to start recording", details: "setCategory: \(error.localizedDescription)")
-      }
+  }
 
-      do {
-        try audioSession.setActive(true, options: .notifyOthersOnDeactivation) // Must be done before setting channels and others
-      } catch {
-        throw RecorderError.error(message: "Failed to start recording", details: "setActive: \(error.localizedDescription)")
-      }
-    }
-
-    if #available(iOS 13.0, *) {
-      do {
-        try audioSession.setAllowHapticsAndSystemSoundsDuringRecording(config.iosConfig.allowHapticsAndSystemSoundsDuringRecording)
-      } catch {
-        throw RecorderError.error(message: "Failed to start recording", details: "setAllowHapticsAndSystemSoundsDuringRecording: \(error.localizedDescription)")
-      }
-    }
-    
+  func applyInterruptionPreference(suppressAlerts: Bool, session: AVAudioSession) throws {
+    guard #available(iOS 14.5, *) else { return }
     do {
-      let newPreferredInputNumberOfChannels = min(config.numChannels, audioSession.maximumInputNumberOfChannels)
+      try session.setPrefersNoInterruptionsFromSystemAlerts(suppressAlerts)
+    } catch {
+      throw RecorderError.error(message: "Failed to start recording", details: "setPrefersNoInterruptionsFromSystemAlerts: \(error.localizedDescription)")
+    }
+  }
 
-      if newPreferredInputNumberOfChannels > 0 {
-        try audioSession.setPreferredInputNumberOfChannels(newPreferredInputNumberOfChannels)
-      }
+  func applyCategory(_ options: AVAudioSession.CategoryOptions, session: AVAudioSession) throws {
+    do {
+      try session.setCategory(.playAndRecord, options: options)
+    } catch {
+      throw RecorderError.error(message: "Failed to start recording", details: "setCategory: \(error.localizedDescription)")
+    }
+  }
+
+  func activateSession(_ session: AVAudioSession) throws {
+    do {
+      try session.setActive(true, options: .notifyOthersOnDeactivation)
+    } catch {
+      throw RecorderError.error(message: "Failed to start recording", details: "setActive: \(error.localizedDescription)")
+    }
+  }
+
+  func applyHapticsPreference(_ allow: Bool, session: AVAudioSession) throws {
+    guard #available(iOS 13.0, *) else { return }
+    do {
+      try session.setAllowHapticsAndSystemSoundsDuringRecording(allow)
+    } catch {
+      throw RecorderError.error(message: "Failed to start recording", details: "setAllowHapticsAndSystemSoundsDuringRecording: \(error.localizedDescription)")
+    }
+  }
+
+  func applyPreferredChannelCount(_ numChannels: Int, session: AVAudioSession) throws {
+    let count = min(numChannels, session.maximumInputNumberOfChannels)
+    guard count > 0 else { return }
+    do {
+      try session.setPreferredInputNumberOfChannels(count)
     } catch {
       throw RecorderError.error(message: "Failed to start recording", details: "setPreferredInputNumberOfChannels: \(error.localizedDescription)")
     }
-    
+  }
+
+  func applyPreferredInputDevice(_ device: Device?) throws {
+    guard let device else { return }
+    guard let inputs = try listInputDevices() else { return }
+    guard let match = inputs.first(where: { $0.uid == device.id }) else { return }
     do {
-      try setInput(config)
+      try AVAudioSession.sharedInstance().setPreferredInput(match)
     } catch {
-      throw RecorderError.error(message: "Failed to start recording", details: "setInput: \(error.localizedDescription)")
+      throw RecorderError.error(message: "Failed to start recording", details: "setPreferredInput: \(error.localizedDescription)")
     }
-    
-    let observer = NotificationCenter.default.addObserver(
+  }
+
+  func registerInterruptionObserver() -> NSObjectProtocol {
+    NotificationCenter.default.addObserver(
       forName: AVAudioSession.interruptionNotification,
       object: nil,
       queue: nil,
-      using: onAudioSessionInterruption)
-
-    return observer
+      using: onAudioSessionInterruption
+    )
   }
+}
 
-  private func onAudioSessionInterruption(notification: Notification) -> Void {
+// MARK: - Interruption handling
+
+private extension AudioRecordingDelegate {
+  func onAudioSessionInterruption(notification: Notification) {
     guard let userInfo = notification.userInfo,
           let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
-          let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
-      return
-    }
-    
-    guard let config = self.config else {
-      return
-    }
-    
+          let type = AVAudioSession.InterruptionType(rawValue: typeValue),
+          let config = self.config else { return }
+
     switch type {
     case .began:
       if config.audioInterruption != AudioInterruptionMode.none {
-        pause()
+         pause()
       }
     case .ended:
-      guard config.audioInterruption == AudioInterruptionMode.pauseResume else { return }
-
-      guard let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt else { return }
-      let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-      guard options.contains(.shouldResume) else { return }
-      
+      guard config.audioInterruption == AudioInterruptionMode.pauseResume,
+            let optValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt,
+            AVAudioSession.InterruptionOptions(rawValue: optValue).contains(.shouldResume) else { return }
       do {
         try AVAudioSession.sharedInstance().setActive(true)
         try resume()
       } catch {
         print("Unable to resume the recording: \(error.localizedDescription)")
       }
-    default: ()
-    }
-  }
-
-  private func setInput(_ config: RecordConfig) throws {
-    guard let device = config.device else {
-      return
-    }
-    
-    let inputs = try listInputDevices()
-    guard let inputs = inputs else {
-      return
-    }
-    
-    let audioSession = AVAudioSession.sharedInstance()
-    
-    for input in inputs {
-      if input.uid == device.id {
-        try audioSession.setPreferredInput(input)
-        break
-      }
+    default: break
     }
   }
 }
