@@ -47,7 +47,12 @@ class RecorderStreamDelegate: NSObject, AudioRecordingStreamDelegate {
     }
 
     engine.prepare()
-    try engine.start()
+    do {
+      try engine.start()
+    } catch {
+      processor.dispose()
+      throw error
+    }
 
     m_audioEngine = engine
     m_lock.withLock { m_processor = processor }
