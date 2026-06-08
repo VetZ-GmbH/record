@@ -127,7 +127,6 @@ private extension AudioRecordingDelegate {
       AVLinearPCMIsNonInterleaved: false,
       AVSampleRateKey:             config.sampleRate,
       AVNumberOfChannelsKey:       config.numChannels,
-      AVEncoderAudioQualityKey:    AVAudioQuality.high.rawValue,
     ]
   }
 
