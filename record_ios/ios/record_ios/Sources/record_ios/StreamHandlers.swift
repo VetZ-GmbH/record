@@ -1,29 +1,35 @@
 import Flutter
 
 public class StateStreamHandler: NSObject, FlutterStreamHandler {
-  var eventSink: FlutterEventSink?
+  private var m_eventSink: FlutterEventSink?
+  private let m_lock = NSLock()
+
+  var eventSink: FlutterEventSink? { m_lock.withLock { m_eventSink } }
 
   public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
-    eventSink = events
+    m_lock.withLock { m_eventSink = events }
     return nil
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
-    eventSink = nil
+    m_lock.withLock { m_eventSink = nil }
     return nil
   }
 }
 
 public class RecordStreamHandler: NSObject, FlutterStreamHandler {
-  var eventSink: FlutterEventSink?
+  private var m_eventSink: FlutterEventSink?
+  private let m_lock = NSLock()
+
+  var eventSink: FlutterEventSink? { m_lock.withLock { m_eventSink } }
 
   public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
-    eventSink = events
+    m_lock.withLock { m_eventSink = events }
     return nil
   }
 
   public func onCancel(withArguments arguments: Any?) -> FlutterError? {
-    eventSink = nil
+    m_lock.withLock { m_eventSink = nil }
     return nil
   }
 }
