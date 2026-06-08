@@ -2,7 +2,7 @@ import AVFoundation
 
 extension AudioRecordingDelegate {
   @discardableResult
-  func initAVAudioSession(config: RecordConfig, manageAudioSession: Bool) throws -> NSObjectProtocol {
+  func initAVAudioSession(config: RecordConfig, manageAudioSession: Bool, queue: DispatchQueue) throws -> NSObjectProtocol {
     let session = AVAudioSession.sharedInstance()
 
     try applyPreferredSampleRate(config.sampleRate, session: session)
@@ -17,7 +17,7 @@ extension AudioRecordingDelegate {
     try applyPreferredChannelCount(config.numChannels, session: session)
     try applyPreferredInputDevice(config.device)
 
-    return registerInterruptionObserver()
+    return registerInterruptionObserver(queue: queue)
   }
 }
 
@@ -87,13 +87,14 @@ private extension AudioRecordingDelegate {
     }
   }
 
-  func registerInterruptionObserver() -> NSObjectProtocol {
+  func registerInterruptionObserver(queue: DispatchQueue) -> NSObjectProtocol {
     NotificationCenter.default.addObserver(
       forName: AVAudioSession.interruptionNotification,
       object: nil,
-      queue: nil,
-      using: onAudioSessionInterruption
-    )
+      queue: nil
+    ) { [weak self] notification in
+      queue.async { self?.onAudioSessionInterruption(notification: notification) }
+    }
   }
 }
 

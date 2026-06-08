@@ -38,9 +38,9 @@ class Recorder {
     let delegate = RecorderFileDelegate(
       queue: m_queue,
       manageAudioSession: m_manageAudioSession,
-      onRecord: { [weak self] in self?.m_queue.async { self?.updateState(.record) } },
-      onPause:  { [weak self] in self?.m_queue.async { self?.updateState(.pause)  } },
-      onStop:   { [weak self] in self?.m_queue.async { self?.updateState(.stop)   } }
+      onRecord: { [weak self] in self?.updateState(.record) },
+      onPause:  { [weak self] in self?.updateState(.pause)  },
+      onStop:   { [weak self] in self?.updateState(.stop)   }
     )
     try delegate.start(config: config, path: path)
     m_delegate = delegate
@@ -56,9 +56,9 @@ class Recorder {
     let delegate = RecorderStreamDelegate(
       queue: m_queue,
       manageAudioSession: m_manageAudioSession,
-      onRecord: { [weak self] in self?.m_queue.async { self?.updateState(.record) } },
-      onPause:  { [weak self] in self?.m_queue.async { self?.updateState(.pause)  } },
-      onStop:   { [weak self] in self?.m_queue.async { self?.updateState(.stop)   } }
+      onRecord: { [weak self] in self?.updateState(.record) },
+      onPause:  { [weak self] in self?.updateState(.pause)  },
+      onStop:   { [weak self] in self?.updateState(.stop)   }
     )
     try delegate.start(config: config, recordEventHandler: m_recordEventHandler)
     m_delegate = delegate

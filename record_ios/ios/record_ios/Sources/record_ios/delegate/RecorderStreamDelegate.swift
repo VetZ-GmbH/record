@@ -32,7 +32,7 @@ class RecorderStreamDelegate: NSObject, AudioRecordingStreamDelegate {
 
   func start(config: RecordConfig, recordEventHandler: RecordStreamHandler) throws {
     let engine = AVAudioEngine()
-    m_interruptionObserver = try initAVAudioSession(config: config, manageAudioSession: m_manageAudioSession)
+    m_interruptionObserver = try initAVAudioSession(config: config, manageAudioSession: m_manageAudioSession, queue: m_queue)
     try setVoiceProcessing(echoCancel: config.echoCancel, autoGain: config.autoGain, audioEngine: engine)
 
     let srcFormat = engine.inputNode.inputFormat(forBus: 0)
@@ -111,7 +111,15 @@ class RecorderStreamDelegate: NSObject, AudioRecordingStreamDelegate {
     guard let processor else { return }
 
     guard let dataList = processor.process(buffer: buffer) else {
-      m_queue.async { self.stop() }
+      m_lock.lock()
+      let toDispose = m_processor
+      m_processor = nil
+      m_lock.unlock()
+      guard toDispose != nil else { return }
+      m_queue.async {
+        toDispose?.dispose()
+        self.stop()
+      }
       return
     }
 

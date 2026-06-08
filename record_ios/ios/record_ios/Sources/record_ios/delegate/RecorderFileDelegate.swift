@@ -25,7 +25,7 @@ class RecorderFileDelegate: NSObject, AudioRecordingFileDelegate, AVAudioRecorde
   func start(config: RecordConfig, path: String) throws {
     try deleteFile(path: path)
 
-    m_interruptionObserver = try initAVAudioSession(config: config, manageAudioSession: m_manageAudioSession)
+    m_interruptionObserver = try initAVAudioSession(config: config, manageAudioSession: m_manageAudioSession, queue: m_queue)
 
     let url = URL(fileURLWithPath: path)
     let recorder = try AVAudioRecorder(url: url, settings: getOutputSettings(config: config))

@@ -11,7 +11,7 @@ public enum RecordState: Int {
   case stop = 2
 }
 
-public protocol AudioRecordingDelegate {
+public protocol AudioRecordingDelegate: AnyObject {
   var config: RecordConfig? { get }
 
   func stop() -> String?
