@@ -196,7 +196,7 @@ class AacAdtsEncoder: AudioEnc {
 
     var adts: [UInt8] = [0, 0, 0, 0, 0, 0, 0]
     adts[0] = 0xFF
-    adts[1] = 0xF9
+    adts[1] = 0xF1
     adts[2] = UInt8((aacProfile - 1) << 6) | freqIdx << 2 | UInt8(channels >> 2)
     adts[3] = UInt8((channels & 3) << 6 | (packetLength >> 11) & 0x3)
     adts[4] = UInt8((packetLength & 0x7FF) >> 3)
