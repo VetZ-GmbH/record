@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 
@@ -24,51 +23,55 @@ class _RecorderState extends State<Recorder> with AudioRecorderMixin {
   StreamSubscription<Amplitude>? _amplitudeSub;
   Amplitude? _amplitude;
 
+  RecordConfig _config = const RecordConfig(numChannels: 1);
+  bool _useStream = false;
+  List<InputDevice> _inputDevices = [];
+
+  String? _statusBarContent;
+
   @override
   void initState() {
     _audioRecorder = AudioRecorder();
 
-    // Subscribe to state changes
     _recordSub = _audioRecorder.onStateChanged().listen(
       (recordState) => _updateRecordState(recordState),
     );
 
-    // Subscribe to amplitude changes
     _amplitudeSub = _audioRecorder
         .onAmplitudeChanged(const Duration(milliseconds: 300))
         .listen((amp) => setState(() => _amplitude = amp));
 
+    _loadInputDevices();
+
     super.initState();
   }
 
+  Future<void> _loadInputDevices() async {
+    final devices = await _audioRecorder.listInputDevices();
+    setState(() => _inputDevices = devices);
+  }
+
   Future<void> _start() async {
+    setState(() => _statusBarContent = null);
+
     try {
       if (await _audioRecorder.hasPermission()) {
-        final devs = await _audioRecorder.listInputDevices();
-        debugPrint(devs.toString());
-
-        const encoder = AudioEncoder.aacLc;
-
-        if (!await _isEncoderSupported(encoder)) {
+        if (!await _isEncoderSupported(_config.encoder)) {
           return;
         }
 
-        const config = RecordConfig(encoder: encoder, numChannels: 1);
+        _audioRecorder.setOnConfigChanged((config) {
+          setState(() => _statusBarContent = config.toString());
+        });
 
-        _audioRecorder.setOnConfigChanged(((config) {
-          debugPrint('Config changed:\n${config.toString()}');
-        }));
-
-        // Record to file
-        await recordFile(_audioRecorder, config);
-
-        // or record to stream
-        // await recordStream(_audioRecorder, config);
+        if (_useStream) {
+          await recordStream(_audioRecorder, _config, onStop: widget.onStop);
+        } else {
+          await recordFile(_audioRecorder, _config);
+        }
       }
     } catch (e) {
-      if (kDebugMode) {
-        print(e);
-      }
+      setState(() => _statusBarContent = e.toString());
     }
   }
 
@@ -97,6 +100,7 @@ class _RecorderState extends State<Recorder> with AudioRecorderMixin {
       case RecordState.stop:
         _timer?.cancel();
         _recordDuration = 0;
+        _amplitude = null;
     }
   }
 
@@ -104,14 +108,16 @@ class _RecorderState extends State<Recorder> with AudioRecorderMixin {
     final isSupported = await _audioRecorder.isEncoderSupported(encoder);
 
     if (!isSupported) {
-      debugPrint('${encoder.name} is not supported on this platform.');
-      debugPrint('Supported encoders are:');
-
+      final supported = <String>[];
       for (final e in AudioEncoder.values) {
         if (await _audioRecorder.isEncoderSupported(e)) {
-          debugPrint('- ${e.name}');
+          supported.add(e.name);
         }
       }
+      setState(() {
+        _statusBarContent =
+            '${encoder.name} is not supported. Supported: ${supported.join(', ')}.';
+      });
     }
 
     return isSupported;
@@ -119,31 +125,77 @@ class _RecorderState extends State<Recorder> with AudioRecorderMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      spacing: 40,
+    final isStopped = _recordState == RecordState.stop;
+
+    return Stack(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          spacing: 20,
-          children: <Widget>[
-            _RecordStopControl(_recordState, onStart: _start, onStop: _stop),
-            _PauseResumeControl(
-              _recordState,
-              onPause: _pause,
-              onResume: _resume,
+        if (isStopped)
+          Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: _RecordConfigControls(
+                      config: _config,
+                      onConfigChanged: (v) => setState(() => _config = v),
+                      useStream: _useStream,
+                      onUseStreamChanged: (v) => setState(() => _useStream = v),
+                      inputDevices: _inputDevices,
+                    ),
+                  ),
+                ),
+              ),
             ),
-            _Timer(_recordState, _recordDuration),
-          ],
+          ),
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: _StatusBar(info: _statusBarContent),
         ),
-        if (_amplitude != null) ...[
-          Column(
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            spacing: 40,
             children: [
-              Text('Current: ${_amplitude?.current ?? 0.0}'),
-              Text('Max: ${_amplitude?.max ?? 0.0}'),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                spacing: 20,
+                children: <Widget>[
+                  _RecordStopControl(
+                    _recordState,
+                    onStart: _start,
+                    onStop: _stop,
+                  ),
+                  _PauseResumeControl(
+                    _recordState,
+                    onPause: _pause,
+                    onResume: _resume,
+                  ),
+                  _Timer(_recordState, _recordDuration),
+                ],
+              ),
+              if (_amplitude != null)
+                Column(
+                  children: [
+                    Text('Current: ${_amplitude?.current ?? 0.0}'),
+                    Text('Max: ${_amplitude?.max ?? 0.0}'),
+                  ],
+                ),
             ],
           ),
-        ],
+        ),
       ],
     );
   }
@@ -272,6 +324,124 @@ class _PauseResumeControl extends StatelessWidget {
           onTap: () {
             (_recordState == RecordState.pause) ? onResume() : onPause();
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordConfigControls extends StatelessWidget {
+  final RecordConfig config;
+  final ValueChanged<RecordConfig> onConfigChanged;
+  final bool useStream;
+  final ValueChanged<bool> onUseStreamChanged;
+  final List<InputDevice> inputDevices;
+
+  static const _sampleRates = [2, 8000, 16000, 22050, 44100, 48000, 96000];
+
+  const _RecordConfigControls({
+    required this.config,
+    required this.onConfigChanged,
+    required this.useStream,
+    required this.onUseStreamChanged,
+    required this.inputDevices,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = Theme.of(context).textTheme.bodyMedium;
+
+    Widget row(String label, Widget control) {
+      return Row(
+        children: [
+          Expanded(child: Text(label, style: labelStyle)),
+          control,
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        row(
+          'Stream',
+          Checkbox(value: useStream, onChanged: (v) => onUseStreamChanged(v!)),
+        ),
+        if (inputDevices.isNotEmpty)
+          row(
+            'Device',
+            DropdownButton<InputDevice?>(
+              value: config.device,
+              underline: const SizedBox.shrink(),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('Default')),
+                ...inputDevices.map(
+                  (d) => DropdownMenuItem(value: d, child: Text(d.label)),
+                ),
+              ],
+              onChanged: (v) =>
+                  onConfigChanged(config.copyWith(device: (value: v))),
+            ),
+          ),
+        row(
+          'Encoder',
+          DropdownButton<AudioEncoder>(
+            value: config.encoder,
+            underline: const SizedBox.shrink(),
+            items: AudioEncoder.values
+                .map((e) => DropdownMenuItem(value: e, child: Text(e.name)))
+                .toList(),
+            onChanged: (v) => onConfigChanged(config.copyWith(encoder: v!)),
+          ),
+        ),
+        row(
+          'Channels',
+          DropdownButton<int>(
+            value: config.numChannels,
+            underline: const SizedBox.shrink(),
+            items: const [
+              DropdownMenuItem(value: 1, child: Text('Mono')),
+              DropdownMenuItem(value: 2, child: Text('Stereo')),
+              DropdownMenuItem(value: 9, child: Text('!! 9 !!')),
+            ],
+            onChanged: (v) => onConfigChanged(config.copyWith(numChannels: v!)),
+          ),
+        ),
+        row(
+          'Sample rate',
+          DropdownButton<int>(
+            value: config.sampleRate,
+            underline: const SizedBox.shrink(),
+            items: _sampleRates
+                .map((r) => DropdownMenuItem(value: r, child: Text('$r Hz')))
+                .toList(),
+            onChanged: (v) => onConfigChanged(config.copyWith(sampleRate: v!)),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusBar extends StatelessWidget {
+  final String? info;
+
+  const _StatusBar({this.info});
+
+  @override
+  Widget build(BuildContext context) {
+    if (info == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Text(
+        info!,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.primary,
         ),
       ),
     );

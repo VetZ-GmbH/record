@@ -13,7 +13,11 @@ mixin AudioRecorderMixin {
     await recorder.start(config, path: path);
   }
 
-  Future<void> recordStream(AudioRecorder recorder, RecordConfig config) async {
+  Future<void> recordStream(
+    AudioRecorder recorder,
+    RecordConfig config, {
+    void Function(String path)? onStop,
+  }) async {
     final path = await _getPath();
 
     final file = File(path);
@@ -26,6 +30,7 @@ mixin AudioRecorderMixin {
       },
       onDone: () {
         print('End of stream. File written to $path.');
+        onStop?.call(path);
       },
     );
   }

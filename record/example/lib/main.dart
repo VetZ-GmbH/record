@@ -20,17 +20,24 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         body: Center(
-          child: audioPath != null
-              ? AudioPlayer(
-                  source: audioPath!,
-                  onDelete: () => setState(() => audioPath = null),
-                )
-              : Recorder(
+          child: Stack(
+            children: [
+              Offstage(
+                offstage: audioPath != null,
+                child: Recorder(
                   onStop: (path) {
                     debugPrint('Recorded file path: $path');
                     setState(() => audioPath = path);
                   },
                 ),
+              ),
+              if (audioPath != null)
+                AudioPlayer(
+                  source: audioPath!,
+                  onDelete: () => setState(() => audioPath = null),
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -10,17 +10,23 @@ mixin AudioRecorderMixin {
     return recorder.start(config, path: '');
   }
 
-  Future<void> recordStream(AudioRecorder recorder, RecordConfig config) async {
+  Future<void> recordStream(
+    AudioRecorder recorder,
+    RecordConfig config, {
+    void Function(String path)? onStop,
+  }) async {
     final bytes = <int>[];
     final stream = await recorder.startStream(config);
 
     stream.listen(
       (data) => bytes.addAll(data),
-      onDone: () => downloadWebData(
-        web.URL.createObjectURL(
+      onDone: () {
+        final url = web.URL.createObjectURL(
           web.Blob(<JSUint8Array>[Uint8List.fromList(bytes).toJS].toJS),
-        ),
-      ),
+        );
+        downloadWebData(url);
+        onStop?.call(url);
+      },
     );
   }
 
