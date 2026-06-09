@@ -81,7 +81,7 @@ class _RecorderState extends State<Recorder> with AudioRecorderMixin {
     if (path != null) {
       widget.onStop(path);
 
-      downloadWebData(path);
+      downloadWebData(path, _config.encoder);
     }
   }
 
@@ -127,76 +127,79 @@ class _RecorderState extends State<Recorder> with AudioRecorderMixin {
   Widget build(BuildContext context) {
     final isStopped = _recordState == RecordState.stop;
 
-    return Stack(
-      children: [
-        if (isStopped)
-          Align(
-            alignment: Alignment.topCenter,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 360),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
+    return SafeArea(
+      child: Stack(
+        children: [
+          if (isStopped)
+            Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    child: _RecordConfigControls(
-                      config: _config,
-                      onConfigChanged: (v) => setState(() => _config = v),
-                      useStream: _useStream,
-                      onUseStreamChanged: (v) => setState(() => _useStream = v),
-                      inputDevices: _inputDevices,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: _RecordConfigControls(
+                        config: _config,
+                        onConfigChanged: (v) => setState(() => _config = v),
+                        useStream: _useStream,
+                        onUseStreamChanged: (v) =>
+                            setState(() => _useStream = v),
+                        inputDevices: _inputDevices,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _StatusBar(info: _statusBarContent),
           ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: _StatusBar(info: _statusBarContent),
-        ),
-        Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            spacing: 40,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                spacing: 20,
-                children: <Widget>[
-                  _RecordStopControl(
-                    _recordState,
-                    onStart: _start,
-                    onStop: _stop,
-                  ),
-                  _PauseResumeControl(
-                    _recordState,
-                    onPause: _pause,
-                    onResume: _resume,
-                  ),
-                  _Timer(_recordState, _recordDuration),
-                ],
-              ),
-              if (_amplitude != null)
-                Column(
-                  children: [
-                    Text('Current: ${_amplitude?.current ?? 0.0}'),
-                    Text('Max: ${_amplitude?.max ?? 0.0}'),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              spacing: 40,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  spacing: 20,
+                  children: <Widget>[
+                    _RecordStopControl(
+                      _recordState,
+                      onStart: _start,
+                      onStop: _stop,
+                    ),
+                    _PauseResumeControl(
+                      _recordState,
+                      onPause: _pause,
+                      onResume: _resume,
+                    ),
+                    _Timer(_recordState, _recordDuration),
                   ],
                 ),
-            ],
+                if (_amplitude != null)
+                  Column(
+                    children: [
+                      Text('Current: ${_amplitude?.current ?? 0.0}'),
+                      Text('Max: ${_amplitude?.max ?? 0.0}'),
+                    ],
+                  ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

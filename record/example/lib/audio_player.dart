@@ -175,6 +175,7 @@ class AudioPlayerState extends State<AudioPlayer> {
 
   void delete() {
     if (!kIsWeb) {
+    } else {
       try {
         File(widget.source).deleteSync();
       } catch (_) {
