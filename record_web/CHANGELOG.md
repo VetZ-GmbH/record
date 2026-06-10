@@ -1,6 +1,7 @@
-## 2.0.1
+## 2.1.0
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
 * fix: Amplitude calculation.
-* fix: WEBM duration fixer is now fully written in Dart.
+* fix: WEBM duration fixer is now fully written in Dart!
 * fix: Wait for proper pause/resume before updating state.
 * fix: Potential drop of messages.
 * fix: WAVE and PCM memory issues.

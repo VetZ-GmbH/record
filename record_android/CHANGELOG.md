@@ -1,11 +1,12 @@
-## 2.0.2
-* fix: Codec and device caps. Now eagerly updates requested RecordConfig with mismatching values.
+## 2.1.0
+* feat: Improve InputDevice description with sample rates and type.
+* fix: csd-0 ignored resulting in unreadable file on iOS.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
 * fix: Bluetooth SCO connection before audio recording.
 * fix: Prevents potential double pause event.
 * fix: Potential two stop events fired.
 * fix: Prevents potential NPE.
-* fix: Remove useless check.
-* fix: Potential file description leak.
+* fix: Potential file descriptor leak.
 * fix: onOutputFormatChanged has no guard against being called more than once.
 * fix: Wait the end of the recording before deleting the file on `cancel` call.
 * fix: Potentially no result when starting recorder without stopping first.
@@ -15,7 +16,7 @@
 * fix: Encoding may not be stopped if PCM reader fails to stop.
 * fix: Wrong channel count adjustment.
 * fix: Race condition. BUFFER_FLAG_END_OF_STREAM never queued if last encode() runs before mStoppedCompleter is assigned.
-* fix: Code style improvements.
+* fix: Reshape project with better separation of concerns.
 
 ## 2.0.1
 * fix: Build issue.

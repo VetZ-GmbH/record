@@ -1,11 +1,24 @@
-## 7.0.1
-fix: Handles AudioRecorder initialization error.
-fix: Semaphore issues.
-fix: Amplitude interval change not taken into account.
-fix: Amplitude stream potential StateError.
-fix: Record stream doesn't propagate errors from platform.
-fix: Nullify subscriptions when disposing.
-chore: Add tests.
+## 7.1.0
+
+This release marks the end of a long wait, finally completing developments that had been on hold for too long, resulting in countless fixes.
+
+
+Notables changes:
+- No more fuzzy or unknown changes from requested `RecordConfig`, you can retrieve the effective `RecordConfig` from `onConfigChanged` callback. Native platforms now eagerly clamp to device and codec capabilities. While not bullet proof, there's no more surprises.
+- `InputDevice` now provides preferred samples rates and type (sco, builtIn, etc.).
+- AAC encoding from Android now provides a stricter output. iOS should now be able to read those files.
+
+Changelog:
+* feat: Improve InputDevice description with sample rates and type.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: Handles AudioRecorder initialization error.
+* fix: Semaphore issues.
+* fix: Amplitude interval change not taken into account.
+* fix: Amplitude stream potential StateError.
+* fix: Record stream doesn't propagate errors from platform.
+* fix: Nullify subscriptions when disposing.
+* chore: Add tests.
+* chore: Updates example project.
 
 ## 7.0.0
 * chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.

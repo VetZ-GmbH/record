@@ -1,4 +1,6 @@
-## 2.0.1
+## 2.1.0
+* feat: Improve InputDevice description with sample rates.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
 * fix: Missing await on _startFfmpegWithAmplitudeMonitoring.
 * fix: Ensures EOF reaches ffmpeg.
 * fix: `dispose()` closes the state stream before calling `stop()`.

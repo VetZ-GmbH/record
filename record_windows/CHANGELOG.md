@@ -1,17 +1,18 @@
-## 2.0.1
+## 2.1.0
+* feat: Improve InputDevice description with sample rates and type.
+* feat: warmup codec caps when creating Recoder.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: timestamps after pause/resume cycling. resume state event now fired at right time.
 * fix: BinaryMessenger not shared.
 * fix: Correct HR result from ListInputDevices.
 * fix: Race condition on dispose/stop.
 * fix: Ensures that channels are only added if Recorder instance is created.
 * fix: Memory leak on ListInputDevices.
-* fix: Pause result is discarded.
 * fix: Wrong amplitude.
 * fix: Potential crash when streaming.
-* fix: Various code style improvements.
-* fix: Remove dead code.
 * fix: Only set config if EndRecording succeeded.
 * fix: Let MFTEnumEx check if AMR_WB is available as encoder.
-
+* fix: Reshape project with better separation of concerns.
 
 ## 2.0.0
 * chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.

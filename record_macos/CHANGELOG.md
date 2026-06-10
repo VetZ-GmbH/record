@@ -1,3 +1,10 @@
+## 2.1.0
+* feat: Improve InputDevice description with sample rates and type.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: pause/resume consistent state.
+* fix: Potential race conditions. Reworked queue dispatching.
+* fix: Reshape project with better separation of concerns.
+
 ## 2.0.0
 * chore: Completes Swift Package Manager integration.
 * chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
