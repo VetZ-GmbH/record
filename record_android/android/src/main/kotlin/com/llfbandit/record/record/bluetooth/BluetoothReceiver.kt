@@ -26,6 +26,7 @@ class BluetoothReceiver(
   private val devices = HashSet<AudioDeviceInfo>()
   private var audioDeviceCallback: AudioDeviceCallback? = null
   private var mRegistered: Boolean = false
+  private var startNotified: Boolean = false
 
   init {
     filter.addAction(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED)
@@ -74,6 +75,7 @@ class BluetoothReceiver(
     }
 
     listener = null
+    startNotified = false
 
     if (mRegistered) {
       context.unregisterReceiver(this)
@@ -93,7 +95,12 @@ class BluetoothReceiver(
   override fun onReceive(context: Context, intent: Intent) {
     val state = intent.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1)
     when (state) {
-      AudioManager.SCO_AUDIO_STATE_CONNECTED -> listener?.onBlScoConnected()
+      AudioManager.SCO_AUDIO_STATE_CONNECTED -> {
+        if (!startNotified) {
+          startNotified = true
+          listener?.onBlScoConnected()
+        }
+      }
       AudioManager.SCO_AUDIO_STATE_DISCONNECTED -> listener?.onBlScoDisconnected()
     }
   }
@@ -109,10 +116,12 @@ class BluetoothReceiver(
           audioManager.setCommunicationDevice(device)
           // setCommunicationDevice is synchronous; the legacy SCO broadcast is not
           // guaranteed to fire on API 31+, so notify the listener immediately.
+          startNotified = true
           listener?.onBlScoConnected()
           return
         }
       }
+      startNotified = true
       listener?.onBlScoNone()
     } else {
       @Suppress("DEPRECATION")

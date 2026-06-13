@@ -1,3 +1,6 @@
+## 2.1.1
+* fix: Potential result sent twice with SCO.
+
 ## 2.1.0
 * feat: Improve InputDevice description with sample rates and type.
 * fix: csd-0 ignored resulting in unreadable file on iOS.
