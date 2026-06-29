@@ -2,7 +2,7 @@ package com.llfbandit.record.record.encoder
 
 import android.media.MediaCodec
 import android.media.MediaFormat
-import com.llfbandit.record.record.RecordConfig
+import com.llfbandit.record.record.model.RecordConfig
 import com.llfbandit.record.record.format.Format
 import java.nio.ByteBuffer
 
@@ -18,7 +18,7 @@ class PassthroughEncoder(
   private var mIsStarted = false
   private val mBufferInfo = MediaCodec.BufferInfo()
   private var mTrackIndex = -1
-  private var mContainer = format.getContainer(config.path)
+  private var mContainer = format.createWriter(mediaFormat, config.path)
 
   private val mFrameSize = mediaFormat.getInteger(Format.KEY_X_FRAME_SIZE_IN_BYTES)
   private val mSampleRate = mediaFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -44,7 +44,7 @@ class PassthroughEncoder(
   override fun stopEncoding() {
     if (mIsStarted) {
       mIsStarted = false
-      mContainer.stop()
+      mContainer.release()
     }
   }
 

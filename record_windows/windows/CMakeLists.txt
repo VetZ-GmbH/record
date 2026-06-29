@@ -17,11 +17,23 @@ list(APPEND PLUGIN_SOURCES
   "record_windows_plugin.cpp"
   "record_windows_plugin.h"
   "record_config.h"
-  "record.h"
-  "record.cpp"
-  "record_readercallback.cpp"
-  "record_iunknown.cpp"
-  "record_mediatype.cpp"
+  "record/record.h"
+  "record/record.cpp"
+  "record/record_readercallback.cpp"
+  "record/record_iunknown.cpp"
+  "encoder/stream_encoder.h"
+  "encoder/codec_caps.h"
+  "encoder/codec_caps.cpp"
+  "encoder/aac_adts_encoder.h"
+  "encoder/aac_adts_encoder.cpp"
+  "encoder/pcm_encoder.h"
+  "encoder/pcm_encoder.cpp"
+  "mediatype/record_mediatype.h"
+  "mediatype/record_mediatype.cpp"
+  "audio_device/record_audio_device.h"
+  "audio_device/record_audio_device.cpp"
+  "amplitude/amplitude_tracker.h"
+  "amplitude/amplitude_tracker.cpp"
   "utils.h"
   "event_stream_handler.h"
 )
@@ -34,7 +46,7 @@ add_library(${PLUGIN_NAME} SHARED
   ${PLUGIN_SOURCES}
 )
 
-set(wmf_libs dxva2.lib evr.lib mf.lib mfplat.lib mfplay.lib mfreadwrite.lib mfuuid.lib Shlwapi.lib)
+set(wmf_libs mf.lib mfplat.lib mfreadwrite.lib mfuuid.lib Shlwapi.lib ole32.lib)
 
 # Apply a standard set of build settings that are configured in the
 # application-level CMakeLists.txt. This can be removed for plugins that want
@@ -52,6 +64,9 @@ target_compile_definitions(${PLUGIN_NAME} PRIVATE FLUTTER_PLUGIN_IMPL)
 # dependencies here.
 target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_include_directories(${PLUGIN_NAME} PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin ${wmf_libs})
 

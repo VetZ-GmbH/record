@@ -11,10 +11,10 @@ public enum RecordState: Int {
   case stop = 2
 }
 
-public protocol AudioRecordingDelegate {
+public protocol AudioRecordingDelegate: AnyObject {
   var config: RecordConfig? { get }
-  
-  func stop(completionHandler: @escaping (String?) -> ())
+
+  func stop() -> String?
   func cancel() throws
   func getAmplitude() -> Float
   func pause()

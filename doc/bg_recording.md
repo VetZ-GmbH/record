@@ -1,8 +1,8 @@
 # Background recording
 
-Consider the following deprecated.
+This behaviour is not supported by the plugin itself.
 
-As of today, prefer use an external package such as [flutter_foreground_task](https://pub.dev/packages/flutter_foreground_task).
+For both Android and iOS, the recommended way is to use an external package such as [flutter_foreground_task](https://pub.dev/packages/flutter_foreground_task).
 
 There is also a ready to use example [here](https://github.com/Dev-hwang/flutter_foreground_task_example/tree/main/record_service).
 
@@ -10,34 +10,11 @@ By using a dedicated package, you have much more control and this package can ke
 
 ## Android
 
-Add the following the manifest in `android/app/src/main/AndroidManifest.xml`:
-
-```xml
-<!-- Record permissions for background recording -->
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-<application>
-    <!-- Record background recording service declaration -->
-    <service
-        android:name="com.llfbandit.record.service.AudioRecordingService"
-        android:foregroundServiceType="microphone"
-        android:exported="false" />
-</application>
-```
-
-When starting recording, you need to enable the service explicitly by setting the following in the given config:
-```dart
-RecordConfig(
-  ...,
-  androidConfig: AndroidRecordConfig(service: AndroidService(title: 'Title', content: 'Content...'))
-);
-```
-
-A notification is added (with low importance) to conform to Android requirements if service is started.
+Use an external package.
 
 ## iOS
+
+If your needs are limited, you can simply use this setup.
 
 Add the following in `ios/Runner/info.plist`:
 
@@ -49,6 +26,5 @@ Add the following in `ios/Runner/info.plist`:
 </array>
 ```
 
-If you use `AudioInterruptionMode.pauseResume`, you must include `IosAudioCategoryOptions.mixWithOthers`.
-
-[stackoverflow reference](https://stackoverflow.com/questions/29036294/avaudiorecorder-not-recording-in-background-after-audio-session-interruption-end/35544795#35544795)
+If you use `AudioInterruptionMode.pauseResume`, you must include `IosAudioCategoryOptions.mixWithOthers` 
+([stackoverflow reference](https://stackoverflow.com/questions/29036294/avaudiorecorder-not-recording-in-background-after-audio-session-interruption-end/35544795#35544795)).

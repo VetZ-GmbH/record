@@ -1,6 +1,3 @@
-import 'dart:io';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:record_example/audio_player.dart';
@@ -23,30 +20,24 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         body: Center(
-          child: audioPath != null
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 25),
-                  child: AudioPlayer(
-                    source: audioPath!,
-                    onDelete: () {
-                      if (!kIsWeb) {
-                        try {
-                          File(audioPath!).deleteSync();
-                        } catch (_) {
-                          // Ignored
-                        }
-                      }
-
-                      setState(() => audioPath = null);
-                    },
-                  ),
-                )
-              : Recorder(
+          child: Stack(
+            children: [
+              Offstage(
+                offstage: audioPath != null,
+                child: Recorder(
                   onStop: (path) {
-                    if (kDebugMode) print('Recorded file path: $path');
+                    debugPrint('Recorded file path: $path');
                     setState(() => audioPath = path);
                   },
                 ),
+              ),
+              if (audioPath != null)
+                AudioPlayer(
+                  source: audioPath!,
+                  onDelete: () => setState(() => audioPath = null),
+                ),
+            ],
+          ),
         ),
       ),
     );

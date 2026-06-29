@@ -1,19 +1,10 @@
 package com.llfbandit.record.record.recorder
 
-import com.llfbandit.record.Utils
-import com.llfbandit.record.record.AudioEncoder
-import com.llfbandit.record.record.PCMReader
-import com.llfbandit.record.record.RecordConfig
+import com.llfbandit.record.record.util.Utils
+import com.llfbandit.record.record.model.RecordConfig
 import com.llfbandit.record.record.encoder.EncoderListener
 import com.llfbandit.record.record.encoder.IEncoder
-import com.llfbandit.record.record.format.AacFormat
-import com.llfbandit.record.record.format.AmrNbFormat
-import com.llfbandit.record.record.format.AmrWbFormat
-import com.llfbandit.record.record.format.FlacFormat
 import com.llfbandit.record.record.format.Format
-import com.llfbandit.record.record.format.OpusFormat
-import com.llfbandit.record.record.format.PcmFormat
-import com.llfbandit.record.record.format.WaveFormat
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,13 +19,14 @@ class RecordThread(
   // Signals whether a recording is paused (true) or not (false).
   private val mIsPaused = AtomicBoolean(false)
   private val mIsPausedSem = Semaphore(0, true)
-  private var mHasBeenCanceled = false
+  @Volatile private var mHasBeenCanceled = false
 
   private var mRecordThread: Thread? = null
   // Bridge for on-demand amplitude
   @Volatile private var mPcmReaderRef: PCMReader? = null
 
   override fun onEncoderFailure(ex: Exception) {
+    stopRecording()
     recorderListener.onFailure(ex)
   }
 
@@ -71,17 +63,22 @@ class RecordThread(
   }
 
   fun cancelRecording() {
+    mHasBeenCanceled = true
+
     if (isRecording()) {
-      mHasBeenCanceled = true
       stopRecording()
-    } else {
+    } else if (mRecordThread == null) {
+      // Thread never started or has fully finished. stopAndRelease() won't run again.
       Utils.deleteFile(config.path)
     }
   }
 
   fun getAmplitude(): Double = mPcmReaderRef?.getAmplitude() ?: -160.0
 
+  @Throws(Exception::class)
   fun startRecording() {
+    Format.checkStreamSupport(config)
+
     val startLatch = CountDownLatch(1)
 
     mRecordThread = Thread {
@@ -89,10 +86,9 @@ class RecordThread(
       var encoder: IEncoder? = null
 
       try {
-        val format = selectFormat()
-        val (encoderImpl, adjustedFormat) = format.getEncoder(config, this)
+        val (encoderImpl, format) = Format.createEncoder(config, this)
 
-        pcmReader = PCMReader(config, adjustedFormat)
+        pcmReader = PCMReader(config, format)
         pcmReader.start()
 
         encoder = encoderImpl
@@ -134,10 +130,18 @@ class RecordThread(
 
   private fun stopAndRelease(pcmReader: PCMReader?, encoder: IEncoder?) {
     try {
-      pcmReader?.stop()
-      pcmReader?.release()
+      try {
+        pcmReader?.stop()
+        pcmReader?.release()
+      } catch (ex: Exception) {
+        recorderListener.onFailure(ex)
+      }
 
-      encoder?.stopEncoding()
+      try {
+        encoder?.stopEncoding()
+      } catch (ex: Exception) {
+        recorderListener.onFailure(ex)
+      }
 
       if (mHasBeenCanceled) {
         Utils.deleteFile(config.path)
@@ -150,18 +154,6 @@ class RecordThread(
     }
   }
 
-  private fun selectFormat(): Format {
-    return when (config.encoder) {
-      AudioEncoder.AacLc, AudioEncoder.AacEld, AudioEncoder.AacHe -> AacFormat()
-      AudioEncoder.AmrNb -> AmrNbFormat()
-      AudioEncoder.AmrWb -> AmrWbFormat()
-      AudioEncoder.Flac -> FlacFormat()
-      AudioEncoder.Pcm16bits -> PcmFormat()
-      AudioEncoder.Opus -> OpusFormat()
-      AudioEncoder.Wav -> WaveFormat()
-    }
-  }
-
   private fun pauseState() {
     mIsRecording.set(true)
     mIsPaused.set(true)
@@ -171,9 +163,11 @@ class RecordThread(
 
   private fun recordState() {
     mIsRecording.set(true)
-    mIsPaused.set(false)
+    val wasPaused = mIsPaused.getAndSet(false)
 
-    mIsPausedSem.release()
+    if (wasPaused) {
+      mIsPausedSem.release()
+    }
 
     recorderListener.onRecord()
   }

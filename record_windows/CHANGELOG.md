@@ -1,3 +1,26 @@
+## 2.2.0
+* feat: Add AAC-ADTS streaming.
+* chore: Code improvements / various fixes.
+
+## 2.1.0
+* feat: Improve InputDevice description with sample rates and type.
+* feat: warmup codec caps when creating Recoder.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: timestamps after pause/resume cycling. resume state event now fired at right time.
+* fix: BinaryMessenger not shared.
+* fix: Correct HR result from ListInputDevices.
+* fix: Race condition on dispose/stop.
+* fix: Ensures that channels are only added if Recorder instance is created.
+* fix: Memory leak on ListInputDevices.
+* fix: Wrong amplitude.
+* fix: Potential crash when streaming.
+* fix: Only set config if EndRecording succeeded.
+* fix: Let MFTEnumEx check if AMR_WB is available as encoder.
+* fix: Reshape project with better separation of concerns.
+
+## 2.0.0
+* chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
+
 ## 1.0.7
 * fix: Crashes (on Flutter 3.35.1 only ?)
 

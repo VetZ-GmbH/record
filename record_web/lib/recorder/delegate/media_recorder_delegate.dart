@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:js_interop';
 import 'dart:math' as math;
-import 'package:record_web/js/js_import_library.dart';
-import 'package:record_web/js/js_webm_duration_fix.dart';
+import 'package:record_web/webm/webm_duration_fixer.dart';
 import 'package:web/web.dart' as web;
 
 import 'package:flutter/foundation.dart';
@@ -30,14 +29,9 @@ class MediaRecorderDelegate extends RecorderDelegate {
   web.MediaStreamAudioSourceNode? _source;
 
   final OnStateChanged onStateChanged;
-  RecordConfig? _config;
+  final void Function(RecordConfig)? onConfigChanged;
 
-  MediaRecorderDelegate({required this.onStateChanged}) {
-    ImportJsLibrary().import(
-      './assets/packages/record_web/assets/js/record.fixwebmduration.js',
-      jsFixWebmDurationContentId(),
-    );
-  }
+  MediaRecorderDelegate({required this.onStateChanged, this.onConfigChanged});
 
   @override
   Future<void> dispose() async {
@@ -62,7 +56,7 @@ class MediaRecorderDelegate extends RecorderDelegate {
       _elapsedTime.stop();
 
       try {
-        _audioCtx?.suspend();
+        await _audioCtx?.suspend().toDart;
       } catch (e) {
         debugPrint(e.toString());
       }
@@ -78,7 +72,7 @@ class MediaRecorderDelegate extends RecorderDelegate {
       _elapsedTime.start();
 
       try {
-        _audioCtx?.resume();
+        await _audioCtx?.resume().toDart;
 
         if (_analyser case final analyser?) {
           // Browsers may disconnet analyzer. Force reconnection.
@@ -94,15 +88,19 @@ class MediaRecorderDelegate extends RecorderDelegate {
   }
 
   @override
-  Future<void> start(
-    RecordConfig config, {
-    required String path,
-  }) async {
+  Future<void> start(RecordConfig config, {required String path}) async {
     _mediaRecorder?.stop();
     await _reset();
 
     try {
       final mediaStream = await initMediaStream(config);
+
+      final effectiveConfig = adjustConfig(
+        mediaStream,
+        config,
+        onConfigChanged,
+      );
+      config = effectiveConfig.config;
 
       // Try to assign dedicated mime type.
       final mimeType = getSupportedMimeType(config.encoder);
@@ -126,11 +124,10 @@ class MediaRecorderDelegate extends RecorderDelegate {
 
       mediaRecorder.start(200); // Will trigger dataavailable every 200ms
 
-      _createAudioContext(config, mediaStream);
+      _setupAmplitudeAnalyser(effectiveConfig, mediaStream);
 
       _mediaRecorder = mediaRecorder;
       _mediaStream = mediaStream;
-      _config = config;
 
       onStateChanged(RecordState.record);
     } catch (error) {
@@ -191,31 +188,31 @@ class MediaRecorderDelegate extends RecorderDelegate {
   void _onStop() async {
     String? audioUrl;
 
-    if (_chunks.isNotEmpty) {
-      _elapsedTime.stop();
+    try {
+      if (_chunks.isNotEmpty) {
+        _elapsedTime.stop();
 
-      final blob = switch (_config!.encoder) {
-        AudioEncoder.opus => await fixWebmDuration(
-            web.Blob(
-              _chunks.toJS,
-              web.BlobPropertyBag(type: _mediaRecorder!.mimeType),
-            ),
-            _elapsedTime.elapsedMilliseconds.toJS,
-          ).toDart,
-        _ => web.Blob(
-            _chunks.toJS,
-            web.BlobPropertyBag(type: _mediaRecorder!.mimeType),
-          ),
-      };
+        final mimeType = _mediaRecorder!.mimeType;
+        final mergedBlob = web.Blob(
+          _chunks.toJS,
+          web.BlobPropertyBag(type: mimeType),
+        );
+        final blob = mimeType.startsWith('audio/webm')
+            ? await fixWebmDuration(
+                mergedBlob,
+                _elapsedTime.elapsedMilliseconds,
+              )
+            : mergedBlob;
 
-      audioUrl = web.URL.createObjectURL(blob);
+        audioUrl = web.URL.createObjectURL(blob);
+      }
+    } catch (e) {
+      debugPrint(e.toString());
+    } finally {
+      await _reset();
+      onStateChanged(RecordState.stop);
+      _onStopCompleter?.complete(audioUrl);
     }
-
-    await _reset();
-
-    onStateChanged(RecordState.stop);
-
-    _onStopCompleter?.complete(audioUrl);
   }
 
   Future<void> _reset() async {
@@ -238,20 +235,18 @@ class MediaRecorderDelegate extends RecorderDelegate {
     _analyser = null;
 
     _chunks = [];
-    _config = null;
   }
 
-  void _createAudioContext(RecordConfig config, web.MediaStream stream) {
-    final effectiveConfig = adjustConfig(stream, config);
-
+  void _setupAmplitudeAnalyser(
+    AdjustedConfig effectiveConfig,
+    web.MediaStream stream,
+  ) {
     final audioCtx = effectiveConfig.context;
 
     final source = audioCtx.createMediaStreamSource(stream);
 
     final analyser = audioCtx.createAnalyser();
-    analyser.minDecibels = kMinAmplitude;
-    analyser.maxDecibels = kMaxAmplitude;
-    analyser.fftSize = 1024; // NB of samples (must be power of 2)
+    analyser.fftSize = 1024;
     analyser.smoothingTimeConstant = 0.3; // Default 0.8 is way too high
     source.connect(analyser);
 
@@ -264,14 +259,14 @@ class MediaRecorderDelegate extends RecorderDelegate {
     final analyser = _analyser;
     if (analyser == null) return kMinAmplitude;
 
-    final bufferLength = analyser.frequencyBinCount; // Always fftSize / 2
-    final dataArray = Float32List(bufferLength.toInt());
+    final dataArray = Float32List(analyser.fftSize.toInt());
     final jsArray = dataArray.toJS;
 
-    analyser.getFloatFrequencyData(jsArray);
+    analyser.getFloatTimeDomainData(jsArray);
 
-    return jsArray.toDart
-        .reduce((value, element) => math.max(value, element))
-        .toDouble();
+    final peak = jsArray.toDart.reduce((v, e) => math.max(v, e.abs()));
+    if (peak == 0) return kMinAmplitude;
+
+    return 20 * (math.log(peak) / math.ln10);
   }
 }

@@ -1,37 +1,42 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:typed_data';
 
 import 'package:record_platform_interface/record_platform_interface.dart';
-import 'package:uuid/uuid.dart';
 
-const _uuid = Uuid();
+import 'util/semaphore.dart';
+import 'util/uuid_v4.dart';
 
-/// Audio recorder
-class AudioRecorder {
-  StreamController<Amplitude>? _amplitudeStreamCtrl;
+part 'part/record_amplitude.dart';
+part 'part/record_convert.dart';
+part 'part/record_state.dart';
+part 'part/record_stream.dart';
 
-  StreamController<RecordState>? _stateStreamCtrl;
-  StreamSubscription? _stateStreamSubscription;
-
-  StreamController<Uint8List>? _recordStreamCtrl;
-  StreamSubscription? _recordStreamSubscription;
-
-  Timer? _amplitudeTimer;
-  late Duration _amplitudeTimerInterval;
-  final _semaphore = _Semaphore();
-
-  // Recorder ID
+/// Audio recorder for capturing audio from input devices.
+///
+class AudioRecorder with _AmplitudeMixin, _StateMixin, _StreamMixin {
   final String _recorderId;
 
-  AudioRecorder() : _recorderId = _uuid.v4() {
-    _semaphore.acquire();
-    _create().whenComplete(() => _semaphore.release());
-  }
+  // Semaphore to ensure sequential calls to platform.
+  final _semaphore = Semaphore();
+
+  // A future to store potential error during initialization.
+  late final Future<void> _createFuture;
+
+  Stream<RecordState>? _recordStateStream;
 
   RecordPlatform get _platform => RecordPlatform.instance;
 
-  Future<void> _create() => _platform.create(_recorderId);
+  /// Creates a new audio recorder.
+  AudioRecorder() : _recorderId = UuidV4.generate() {
+    _createFuture = () async {
+      await _semaphore.acquire();
+      try {
+        await _platform.create(_recorderId);
+      } finally {
+        _semaphore.release();
+      }
+    }();
+  }
 
   /// Starts new recording session.
   ///
@@ -40,49 +45,31 @@ class AudioRecorder {
   ///
   /// Output path can be retrieves when [stop] method is called.
   Future<void> start(RecordConfig config, {required String path}) async {
-    await _safeCall(
-      () => _platform.start(_recorderId, config, path: path),
-    );
+    _initStateStream();
 
-    _startAmplitudeTimer();
+    await _safeCall(() => _platform.start(_recorderId, config, path: path));
   }
 
-  /// Same as [start] with output stream instead of a path.
+  /// Starts stream recording and returns the stream.
   ///
   /// When stopping the record, you must rely on stream close event to get
   /// full recorded data.
-  Future<Stream<Uint8List>> startStream(RecordConfig config) async {
-    final stream = await _safeCall(
-      () async {
-        await _stopRecordStream();
+  Future<Stream<Uint8List>> startStream(RecordConfig config) {
+    _initStateStream();
 
-        return _platform.startStream(_recorderId, config);
-      },
-    );
+    return _safeCall(() async {
+      await _stopRecordStream();
 
-    _recordStreamCtrl = StreamController.broadcast();
-
-    _recordStreamSubscription = stream.listen(
-      (data) {
-        final streamCtrl = _recordStreamCtrl;
-        if (streamCtrl == null || streamCtrl.isClosed) return;
-
-        streamCtrl.add(data);
-      },
-    );
-
-    _startAmplitudeTimer();
-
-    return _recordStreamCtrl!.stream;
+      final stream = await _platform.startStream(_recorderId, config);
+      return _startRecordStream(stream);
+    });
   }
 
   /// Stops recording session and release internal recorder resource.
   ///
   /// Returns the output path if any.
-  Future<String?> stop() async {
+  Future<String?> stop() {
     return _safeCall(() async {
-      _amplitudeTimer?.cancel();
-
       final path = await _platform.stop(_recorderId);
 
       await _stopRecordStream();
@@ -92,10 +79,8 @@ class AudioRecorder {
   }
 
   /// Stops and discards/deletes the file/blob.
-  Future<void> cancel() async {
+  Future<void> cancel() {
     return _safeCall(() async {
-      _amplitudeTimer?.cancel();
-
       await _platform.cancel(_recorderId);
 
       return _stopRecordStream();
@@ -105,8 +90,6 @@ class AudioRecorder {
   /// Pauses recording session.
   Future<void> pause() {
     return _safeCall(() {
-      _amplitudeTimer?.cancel();
-
       return _platform.pause(_recorderId);
     });
   }
@@ -114,9 +97,32 @@ class AudioRecorder {
   /// Resumes recording session after [pause].
   Future<void> resume() {
     return _safeCall(() {
-      _startAmplitudeTimer();
       return _platform.resume(_recorderId);
     });
+  }
+
+  /// Sets a callback invoked when the platform adjusted the requested [RecordConfig]
+  /// to match hardware or codec constraints.
+  ///
+  /// Only called when at least one field differs from what was requested.
+  /// Pass [null] to unregister.
+  Future<void> setOnConfigChanged(void Function(RecordConfig config)? callback) {
+    return _safeCall(() async {
+      _platform.setOnConfigChanged(_recorderId, callback);
+    });
+  }
+
+  /// Listen to recorder states [RecordState].
+  ///
+  /// Provides pause, resume and stop states.
+  ///
+  /// Also, you can retrieve async errors from it by adding [Function? onError] callback to the subscription.
+  Stream<RecordState> onStateChanged() =>
+      _recordStateStream ?? _initStateStream();
+
+  /// Requests for amplitude at given [interval].
+  Stream<Amplitude> onAmplitudeChanged(Duration interval) {
+    return _onAmplitudeChanged(interval, isRecording, getAmplitude);
   }
 
   /// Checks if there's valid recording session.
@@ -134,14 +140,9 @@ class AudioRecorder {
   ///
   /// The [request] parameter controls whether to request permission if not
   /// already granted. Defaults to `true`.
-  Future<bool> hasPermission({
-    bool request = true,
-  }) {
+  Future<bool> hasPermission({bool request = true}) {
     return _safeCall(
-      () => _platform.hasPermission(
-        _recorderId,
-        request: request,
-      ),
+      () => _platform.hasPermission(_recorderId, request: request),
     );
   }
 
@@ -161,68 +162,17 @@ class AudioRecorder {
 
   /// Checks if the given encoder is supported on the current platform.
   Future<bool> isEncoderSupported(AudioEncoder encoder) {
-    return _safeCall(() {
-      return _platform.isEncoderSupported(_recorderId, encoder);
-    });
+    return _safeCall(() => _platform.isEncoderSupported(_recorderId, encoder));
   }
 
-  /// Dispose the recorder
+  /// Disposes the recorder.
   Future<void> dispose() {
     return _safeCall(() async {
-      _amplitudeTimer?.cancel();
-      await _amplitudeStreamCtrl?.close();
-      _amplitudeStreamCtrl = null;
-
-      await _stateStreamSubscription?.cancel();
-      await _stateStreamCtrl?.close();
-      _stateStreamCtrl = null;
-
+      await _disposeAmplitude();
+      await _disposeState();
       await _stopRecordStream();
-
       await _platform.dispose(_recorderId);
     });
-  }
-
-  /// Listen to recorder states [RecordState].
-  ///
-  /// Provides pause, resume and stop states.
-  ///
-  /// Also, you can retrieve async errors from it by adding [Function? onError].
-  Stream<RecordState> onStateChanged() {
-    if (_stateStreamCtrl == null) {
-      _stateStreamCtrl = StreamController<RecordState>.broadcast();
-
-      _safeCall(
-        () async {
-          final stream = _platform.onStateChanged(_recorderId);
-
-          _stateStreamSubscription = stream.listen(
-            (state) {
-              if (_stateStreamCtrl case final ctrl? when ctrl.hasListener) {
-                ctrl.add(state);
-              }
-            },
-            onError: (error) {
-              if (_stateStreamCtrl case final ctrl? when ctrl.hasListener) {
-                ctrl.addError(error);
-              }
-            },
-          );
-        },
-      );
-    }
-
-    return _stateStreamCtrl!.stream;
-  }
-
-  /// Request for amplitude at given [interval].
-  Stream<Amplitude> onAmplitudeChanged(Duration interval) {
-    _amplitudeStreamCtrl ??= StreamController<Amplitude>.broadcast();
-
-    _amplitudeTimerInterval = interval;
-    _startAmplitudeTimer();
-
-    return _amplitudeStreamCtrl!.stream;
   }
 
   /// iOS platform specific methods.
@@ -230,98 +180,37 @@ class AudioRecorder {
   /// Returns [null] when not on iOS platform.
   RecordIos? get ios => _platform.getIos(_recorderId);
 
-  Future<void> _updateAmplitudeAtInterval() async {
-    Future<bool> shouldUpdate() async {
-      var result = _amplitudeStreamCtrl != null;
-      result &= !(_amplitudeStreamCtrl?.isClosed ?? true);
-      result &= _amplitudeStreamCtrl?.hasListener ?? false;
-      result &= _amplitudeTimer?.isActive ?? false;
-
-      return result && await isRecording();
-    }
-
-    if (await shouldUpdate()) {
-      final amplitude = await getAmplitude();
-      _amplitudeStreamCtrl?.add(amplitude);
-    }
-  }
-
-  void _startAmplitudeTimer() {
-    _amplitudeTimer?.cancel();
-
-    if (_amplitudeStreamCtrl == null) return;
-
-    _amplitudeTimer = Timer.periodic(
-      _amplitudeTimerInterval,
-      (timer) => _updateAmplitudeAtInterval(),
+  /// Initialize state stream.
+  /// Must be called outside of `_safeCall` to avoid deadlock.
+  Stream<RecordState> _initStateStream() {
+    _recordStateStream ??= _onStateChanged(
+      _platform,
+      _recorderId,
+      _handleAmplitudeRequesting,
+      _semaphore,
     );
+
+    return _recordStateStream!;
   }
 
-  Future<void> _stopRecordStream() async {
-    await _recordStreamSubscription?.cancel();
-    await _recordStreamCtrl?.close();
-    _recordStreamCtrl = null;
-  }
-
-  /// Converts a [Uint8List] of bytes to a [List<int>] of signed 16-bit integers.
-  /// 
-  /// [endian] specifies the byte order (default: [Endian.little]).
-  /// Throws [ArgumentError] if `bytes.length` is not even.
-  List<int> convertBytesToInt16(Uint8List bytes, [Endian endian = Endian.little]) {
-    if (bytes.length % 2 != 0) {
-      throw ArgumentError('Input byte length must be even.');
+  void _handleAmplitudeRequesting(RecordState state) {
+    switch (state) {
+      case RecordState.pause:
+      case RecordState.stop:
+        _stopAmplitudeMonitoring();
+      case RecordState.record:
+        _startAmplitudeMonitoring(isRecording, getAmplitude);
     }
-
-    // Ensure correct byte offset and length are used
-    final byteData = ByteData.sublistView(bytes);
-    final values = List<int>.filled(bytes.length ~/ 2, 0);
-
-    for (var i = 0; i < values.length; i++) {
-      values[i] = byteData.getInt16(i * 2, endian);
-    }
-    return values;
   }
 
+  /// Safe call to [fn] with semaphore permit.
   Future<T> _safeCall<T>(Future<T> Function() fn) async {
+    await _createFuture;
     await _semaphore.acquire();
     try {
       return await fn();
     } finally {
       _semaphore.release();
-    }
-  }
-}
-
-/// A class that represents a semaphore.
-class _Semaphore {
-  final int maxCount = 1;
-
-  int _counter = 0;
-  final _waitQueue = Queue<Completer>();
-
-  /// Acquires a permit from this semaphore, asynchronously blocking until one
-  /// is available.
-  Future acquire() {
-    var completer = Completer();
-    if (_counter + 1 <= maxCount) {
-      _counter++;
-      completer.complete();
-    } else {
-      _waitQueue.add(completer);
-    }
-    return completer.future;
-  }
-
-  /// Releases a permit, returning it to the semaphore.
-  void release() {
-    if (_counter == 0) {
-      throw StateError("Unable to release semaphore.");
-    }
-    _counter--;
-    if (_waitQueue.isNotEmpty) {
-      _counter++;
-      var completer = _waitQueue.removeFirst();
-      completer.complete();
     }
   }
 }

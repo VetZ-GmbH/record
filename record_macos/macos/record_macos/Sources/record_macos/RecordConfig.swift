@@ -14,14 +14,22 @@ public enum AudioEncoder: String {
 
 public class RecordConfig {
   let encoder: String
-  let bitRate: Int
-  let sampleRate: Int
-  let numChannels: Int
+  var bitRate: Int
+  var sampleRate: Int
+  var numChannels: Int
   let device: Device?
   let autoGain: Bool
   let echoCancel: Bool
   let noiseSuppress: Bool
   let streamBufferSize: Int?
+
+  private var m_args: [String: Any] = [:]
+
+  var isModified: Bool {
+    bitRate    != (m_args["bitRate"]      as? Int ?? 128000) ||
+    sampleRate != (m_args["sampleRate"]   as? Int ?? 44100)  ||
+    numChannels != (m_args["numChannels"] as? Int ?? 2)
+  }
 
   init(encoder: String,
        bitRate: Int,
@@ -48,21 +56,56 @@ public class RecordConfig {
 public class Device {
   let id: String
   let label: String
+  let type: String
+  let sampleRates: [Int]
 
-  init(id: String, label: String) {
+  init(id: String, label: String, type: String = "unknown", sampleRates: [Int] = []) {
     self.id = id
     self.label = label
+    self.type = type
+    self.sampleRates = sampleRates
   }
 
   init(map: [String: Any]) {
     self.id = map["id"] as! String
     self.label = map["label"] as! String
+    self.type = map["type"] as? String ?? "unknown"
+    self.sampleRates = map["sampleRates"] as? [Int] ?? []
   }
 
   func toMap() -> [String: Any] {
-    return [
-      "id": id,
-      "label": label
-    ]
+    var map: [String: Any] = ["id": id, "label": label, "type": type]
+    if !sampleRates.isEmpty { map["sampleRates"] = sampleRates }
+    return map
+  }
+}
+
+extension RecordConfig {
+  func toMap() -> [String: Any] {
+    var map = m_args
+    map["bitRate"] = bitRate
+    map["sampleRate"] = sampleRate
+    map["numChannels"] = numChannels
+    return map
+  }
+
+  static func fromMap(_ args: [String: Any]) throws -> RecordConfig {
+    guard let encoder = args["encoder"] as? String else {
+      throw RecorderError.error(message: "Call missing mandatory parameter encoder.", details: nil)
+    }
+    let device = (args["device"] as? [String: Any]).map(Device.init(map:))
+    let config = RecordConfig(
+      encoder: encoder,
+      bitRate: args["bitRate"] as? Int ?? 128000,
+      sampleRate: args["sampleRate"] as? Int ?? 44100,
+      numChannels: args["numChannels"] as? Int ?? 2,
+      device: device,
+      autoGain: args["autoGain"] as? Bool ?? false,
+      echoCancel: args["echoCancel"] as? Bool ?? false,
+      noiseSuppress: args["noiseSuppress"] as? Bool ?? false,
+      streamBufferSize: args["streamBufferSize"] as? Int
+    )
+    config.m_args = args
+    return config
   }
 }

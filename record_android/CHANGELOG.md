@@ -1,3 +1,45 @@
+## 2.1.2
+* fix: Throw for unsupported stream encoders.
+* fix: Flac regression from CSD changes.
+* fix: Improve consistency of device/codec caps adjustment flow.
+
+## 2.1.1
+* fix: Potential result sent twice with SCO.
+
+## 2.1.0
+* feat: Improve InputDevice description with sample rates and type.
+* fix: csd-0 ignored resulting in unreadable file on iOS.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: Bluetooth SCO connection before audio recording.
+* fix: Prevents potential double pause event.
+* fix: Potential two stop events fired.
+* fix: Prevents potential NPE.
+* fix: Potential file descriptor leak.
+* fix: onOutputFormatChanged has no guard against being called more than once.
+* fix: Wait the end of the recording before deleting the file on `cancel` call.
+* fix: Potentially no result when starting recorder without stopping first.
+* fix: Useless check of codec.
+* fix: Silent frames now return -160.0 instead of -Infinity.
+* fix: Cancelled recordings may leave partial files on disk.
+* fix: Encoding may not be stopped if PCM reader fails to stop.
+* fix: Wrong channel count adjustment.
+* fix: Race condition. BUFFER_FLAG_END_OF_STREAM never queued if last encode() runs before mStoppedCompleter is assigned.
+* fix: Reshape project with better separation of concerns.
+
+## 2.0.1
+* fix: Build issue.
+
+## 2.0.0
+* chore: **Breaking change** Remove background recording service.
+* chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
+* chore: Move to AGP 9.x.
+* chore: Move to Kotlin Gradle DSL.
+
+## 1.5.2
+* fix: Potential `IndexOutOfBoundsException` for AAC ADTS streaming.
+* chore: Many code improvements and cleanups.
+* chore: Deprecate background Android service.
+
 ## 1.5.1
 * fix: Potential `IndexOutOfBoundsException` for AAC ADTS streaming.
 

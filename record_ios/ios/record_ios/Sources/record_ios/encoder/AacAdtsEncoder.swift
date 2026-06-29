@@ -58,53 +58,51 @@ class AacAdtsEncoder: AudioEnc {
   }
   
   func encode(buffer: AVAudioPCMBuffer) -> [Data] {
-    guard let converter = audioConverter, let channelData = buffer.int16ChannelData else {
+    guard let channelData = buffer.int16ChannelData else {
       return []
     }
-    
+
     let frameCount = Int(buffer.frameLength)
     let channels = Int(buffer.format.channelCount)
 
-    // Buffer PCM samples
-    bufferLock.lock()
-    pcmBuffer.reserveCapacity(pcmBuffer.count + frameCount * channels)
-    
-    // interleave channels
-    for frame in 0..<frameCount {
-      for ch in 0..<channels {
-        let sample = channelData[ch][frame]
-        pcmBuffer.append(sample)
-      }
-    }
+    return bufferLock.withLock {
+      guard let converter = audioConverter else { return [] }
 
-    // Encode to AAC
-    let samplesPerFrame = aacFramesPerPacket * channels
-    var aacDataList: [Data] = []
-    
-    while pcmBufferReadIndex + samplesPerFrame <= pcmBuffer.count {
-      let endIndex = pcmBufferReadIndex + samplesPerFrame
-      let framesToEncode = Array(pcmBuffer[pcmBufferReadIndex..<endIndex])
-      pcmBufferReadIndex += samplesPerFrame
-      
-      if let aacData = encode(
-        pcmSamples: framesToEncode,
-        converter: converter,
-        sampleRate: config!.sampleRate,
-        channels: channels) {
+      pcmBuffer.reserveCapacity(pcmBuffer.count + frameCount * channels)
 
-        aacDataList.append(aacData)
+      // interleave channels
+      for frame in 0..<frameCount {
+        for ch in 0..<channels {
+          pcmBuffer.append(channelData[ch][frame])
+        }
       }
+
+      // Encode to AAC
+      let samplesPerFrame = aacFramesPerPacket * channels
+      var aacDataList: [Data] = []
+
+      while pcmBufferReadIndex + samplesPerFrame <= pcmBuffer.count {
+        let endIndex = pcmBufferReadIndex + samplesPerFrame
+        let framesToEncode = Array(pcmBuffer[pcmBufferReadIndex..<endIndex])
+        pcmBufferReadIndex += samplesPerFrame
+
+        guard let sampleRate = config?.sampleRate else { break }
+        if let aacData = encode(
+          pcmSamples: framesToEncode,
+          converter: converter,
+          sampleRate: sampleRate,
+          channels: channels) {
+          aacDataList.append(aacData)
+        }
+      }
+
+      if pcmBufferReadIndex > 0 {
+        pcmBuffer = Array(pcmBuffer[pcmBufferReadIndex...])
+        pcmBufferReadIndex = 0
+      }
+
+      return aacDataList
     }
-    
-    // Compact buffer when read index gets large
-    if pcmBufferReadIndex > 10000 {
-      pcmBuffer.removeFirst(pcmBufferReadIndex)
-      pcmBufferReadIndex = 0
-    }
-    
-    bufferLock.unlock()
-    
-    return aacDataList
   }
   
   private func encode(pcmSamples: [Int16], converter: AudioConverterRef, sampleRate: Int, channels: Int) -> Data? {
@@ -126,8 +124,8 @@ class AacAdtsEncoder: AudioEnc {
         mBuffers: inputBuffer
       )
       
-      // Prepare output buffer
-      let outputBufferSize = 2048
+      // AAC-LC allows up to 6144 bits/channel; 8192 bytes comfortably covers all.
+      let outputBufferSize = 8192
       let outputBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: outputBufferSize)
       defer { outputBuffer.deallocate() }
       
@@ -205,9 +203,9 @@ class AacAdtsEncoder: AudioEnc {
 
     var adts: [UInt8] = [0, 0, 0, 0, 0, 0, 0]
     adts[0] = 0xFF
-    adts[1] = 0xF9
+    adts[1] = 0xF1
     adts[2] = UInt8((aacProfile - 1) << 6) | freqIdx << 2 | UInt8(channels >> 2)
-    adts[3] = UInt8((channels & 3) << 6 | packetLength >> 11)
+    adts[3] = UInt8((channels & 3) << 6 | (packetLength >> 11) & 0x3)
     adts[4] = UInt8((packetLength & 0x7FF) >> 3)
     adts[5] = UInt8((packetLength & 7) << 5 | 0x1F)
     adts[6] = 0xFC
@@ -216,14 +214,13 @@ class AacAdtsEncoder: AudioEnc {
   }
   
   func dispose() {
-    if let converter = audioConverter {
-      AudioConverterDispose(converter)
-      audioConverter = nil
+    bufferLock.withLock {
+      if let converter = audioConverter {
+        AudioConverterDispose(converter)
+        audioConverter = nil
+      }
+      pcmBuffer.removeAll(keepingCapacity: true)
+      pcmBufferReadIndex = 0
     }
-    
-    bufferLock.lock()
-    pcmBuffer.removeAll(keepingCapacity: true)
-    pcmBufferReadIndex = 0
-    bufferLock.unlock()
   }
 }

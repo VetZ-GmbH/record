@@ -1,3 +1,66 @@
+## 7.1.0
+
+This release marks the end of a long wait, finally completing developments that had been on hold for too long, resulting in countless fixes.
+
+
+Notables changes:
+- No more fuzzy or unknown changes from requested `RecordConfig`, you can retrieve the effective `RecordConfig` from `onConfigChanged` callback. Native platforms now eagerly clamp to device and codec capabilities. While not bullet proof, there's no more surprises.
+- `InputDevice` now provides preferred samples rates and type (sco, builtIn, etc.).
+- AAC encoding from Android now provides a stricter output. iOS should now be able to read those files.
+
+Changelog:
+* feat: Improve InputDevice description with sample rates and type.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: Handles AudioRecorder initialization error.
+* fix: Semaphore issues.
+* fix: Amplitude interval change not taken into account.
+* fix: Amplitude stream potential StateError.
+* fix: Record stream doesn't propagate errors from platform.
+* fix: Nullify subscriptions when disposing.
+* chore: Add tests.
+* chore: Updates example project.
+
+## 7.0.0
+* chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
+* Android:
+    * chore: **Breaking change** Remove background recording service. See [docs](https://github.com/llfbandit/record/blob/main/doc/bg_recording.md).
+    * chore: Move to AGP 9.x.
+    * chore: Move to Kotlin Gradle DSL.
+* iOS:
+    * fix: Respect `shouldResume` system flag on audio interruption and don't stop on resume failure.
+    * chore: **Breaking change** Remove `manageAudioSession` deprecated config property.
+    * chore: Completes Swift Package Manager integration.
+* macOS:
+    * chore: Completes Swift Package Manager integration.
+* web:
+    * feat: JS assets are now web platform-specific assets. No more js files in other platform builds.
+
+## 6.2.1
+__This version is the last before v7 which will raise SDK versions to Flutter 3.44/Dart 3.12.__
+
+* fix: Stop requesting for amplitude updates when recording is paused or stopped from native side.
+* chore: Code cleanup.
+* chore: Remove uuid package dependency.
+* chore: Updated transitive dependencies. See there for all related changes to dedicated platforms.
+* Android:
+    * fix: Potential `IndexOutOfBoundsException` for AAC ADTS streaming.
+    * chore: Many code improvements and cleanups.
+    * chore: Deprecate background Android service (will be removed in v7).
+* iOS:
+    * feat: Add `allowHapticsAndSystemSoundsDuringRecording` iOS option.
+    * fix: Fuzzy events firing for recording states.
+    * fix: AVAudioPCMBuffer frame capacity calculation.
+    * fix: Stay away from Flutter UI thread.
+    * fix: SPM description.
+    * chore: Code cleanup.
+    * chore: Update example project.
+* macOS:
+    * fix: Stay away from Flutter UI thread.
+    * fix: SPM description.
+    * chore: Code cleanup.
+* Linux:
+    * fix: Overriding the locale of `pactl` command for consistent parsing.
+
 ## 6.2.0
 * feat: Add `request` parameter to `hasPermission()` method to check permission status without requesting.
 * feat: Improve `convertBytesToInt16` to allow pre-filled bytes array.
@@ -208,7 +271,7 @@ This contains very small breaking changes. See below.
 * core: Update dependencies.
 * core: README.md updates.
 * core: License changed from Apache 2.0 to BSD-3-Clause.
-
+* 
 * feat: Add Windows platform support.
 * feat: Add macOS platform support.
 * feat: Codec is now applied in web platform (if available).

@@ -1,4 +1,5 @@
 #include "record_windows_plugin.h"
+#include "audio_device/record_audio_device.h"
 #include <mfreadwrite.h>
 #include <Mferror.h>
 #include "record_config.h"
@@ -8,20 +9,6 @@
 using namespace flutter;
 
 namespace record_windows {
-	HRESULT AttributeGetString(IMFAttributes* pAttributes, const GUID& guid, LPWSTR value)
-	{
-		HRESULT hr = S_OK;
-		UINT32 cchLength = 0;
-
-		hr = pAttributes->GetStringLength(guid, &cchLength);
-		if (SUCCEEDED(hr))
-		{
-			hr = pAttributes->GetString(guid, value, cchLength + 1, &cchLength);
-		}
-
-		return hr;
-	}
-
 	static void ErrorFromHR(HRESULT hr, MethodResult<EncodableValue>& result)
 	{
 		_com_error err(hr);
@@ -37,6 +24,7 @@ namespace record_windows {
 	// static, Register the plugin
 	void RecordWindowsPlugin::RegisterWithRegistrar(flutter::PluginRegistrarWindows* registrar) {
 		auto plugin = std::make_unique<RecordWindowsPlugin>(
+			registrar->messenger(),
 			[registrar](auto delegate) {
 				return registrar->RegisterTopLevelWindowProcDelegate(delegate);
 			},
@@ -46,10 +34,8 @@ namespace record_windows {
 			[registrar] { return GetRootWindow(registrar->GetView()); }
 		);
 
-		m_binaryMessenger = registrar->messenger();
-
 		auto methodChannel = std::make_unique<MethodChannel<EncodableValue>>(
-			m_binaryMessenger, "com.llfbandit.record/messages",
+			registrar->messenger(), "com.llfbandit.record/messages",
 			&StandardMethodCodec::GetInstance());
 
 		methodChannel->SetMethodCallHandler(
@@ -81,10 +67,12 @@ namespace record_windows {
 	}
 
 	RecordWindowsPlugin::RecordWindowsPlugin(
+		BinaryMessenger* messenger,
 		WindowProcDelegateRegistrator registrator,
 		WindowProcDelegateUnregistrator unregistrator,
 		FlutterRootWindowProvider window_provider
-	):	m_win_proc_delegate_registrator(registrator),
+	):	m_binaryMessenger(messenger),
+		m_win_proc_delegate_registrator(registrator),
 		m_win_proc_delegate_unregistrator(unregistrator) {
 
 		get_root_window = std::move(window_provider);
@@ -97,6 +85,8 @@ namespace record_windows {
 	}
 
 	RecordWindowsPlugin::~RecordWindowsPlugin() {
+		*m_alive = false;
+
 		for (const auto& [recorderId, recorder] : m_recorders)
 		{
 			recorder->Dispose();
@@ -130,7 +120,7 @@ namespace record_windows {
 	}
 
 	// Called when a method is called on this plugin's channel from Dart.
-	void RecordWindowsPlugin::RecordWindowsPlugin::HandleMethodCall(
+	void RecordWindowsPlugin::HandleMethodCall(
 		const MethodCall<EncodableValue>& method_call,
 		std::unique_ptr<MethodResult<EncodableValue>> result
 	) {
@@ -223,7 +213,7 @@ namespace record_windows {
 
 			if (SUCCEEDED(hr))
 			{
-				result->Success(recordingPath.empty() ? EncodableValue() : EncodableValue(Utf8FromUtf16(recordingPath)));
+				result->Success(recordingPath.empty() ? EncodableValue() : EncodableValue(Utf8FromUtf16(recordingPath.c_str())));
 			}
 			else {
 				ErrorFromHR(hr, *result);
@@ -250,10 +240,13 @@ namespace record_windows {
 			// destroyed. Immediate erase would destroy the Recorder while lambdas
 			// referencing it may still be pending, causing access violations.
 			recorder->Dispose();
-			RecordWindowsPlugin::RunOnMainThread([this, recorderId]() -> void {
+			auto alive = m_alive;
+			RecordWindowsPlugin::RunOnMainThread([this, alive, recorderId]() -> void {
+				if (!*alive) return;
 				m_recorders.erase(recorderId);
 				m_state_event_channels.erase(recorderId);
 				m_record_event_channels.erase(recorderId);
+				m_config_changed_channels.erase(recorderId);
 			});
 
 			result->Success(EncodableValue());
@@ -280,7 +273,7 @@ namespace record_windows {
 			}
 
 			bool supported = false;
-			HRESULT hr = recorder->isEncoderSupported(encoderName, &supported);
+			HRESULT hr = AudioDevice::IsEncoderSupported(encoderName, &supported);
 
 			if (SUCCEEDED(hr))
 			{
@@ -293,7 +286,13 @@ namespace record_windows {
 		}
 		else if (method_call.method_name().compare("listInputDevices") == 0)
 		{
-			ListInputDevices(*result);
+			EncodableList devices;
+			HRESULT hr = AudioDevice::ListInputDevices(devices);
+			if (SUCCEEDED(hr)) {
+				result->Success(EncodableValue(std::move(devices)));
+			} else {
+				ErrorFromHR(hr, *result);
+			}
 		}
 	}
 
@@ -330,7 +329,8 @@ namespace record_windows {
 			numChannels,
 			autoGain,
 			echoCancel,
-			noiseSuppress
+			noiseSuppress,
+			*args
 		);
 
 		return config;
@@ -356,16 +356,35 @@ namespace record_windows {
 		std::unique_ptr<StreamHandler<EncodableValue>> pRecordEventHandler{static_cast<StreamHandler<EncodableValue>*>(eventRecordHandler)};
 		eventRecordChannel->SetStreamHandler(std::move(pRecordEventHandler));
 
-		// Keep channels alive for the recorder lifetime and also keep shared
-		// ownership of handlers so Recorder's weak_ptr captures remain valid
-		m_state_event_channels.insert(std::make_pair(recorderId, std::move(eventChannel)));
-		m_record_event_channels.insert(std::make_pair(recorderId, std::move(eventRecordChannel)));
+		// Config-changed method channel
+		auto configChangedChannel = std::make_unique<MethodChannel<EncodableValue>>(
+			m_binaryMessenger, "com.llfbandit.record/configChanged/" + recorderId,
+			&StandardMethodCodec::GetInstance());
 
 		Recorder* pRecorder = NULL;
 
 		HRESULT hr = Recorder::CreateInstance(eventHandler, eventRecordHandler, &pRecorder);
 		if (SUCCEEDED(hr))
 		{
+			// Warmup codec capabilities since this is quite slow. This is done only once for all instances.
+			static std::once_flag sWarmFlag;
+			std::call_once(sWarmFlag, [] { AudioDevice::WarmCodecCapsAsync(); });
+
+			auto* pChannel = configChangedChannel.get();
+			pRecorder->SetOnConfigChanged([pChannel](const RecordConfig& cfg) {
+				EncodableMap args = cfg.rawArgs;
+				args[EncodableValue("bitRate")]     = EncodableValue(cfg.bitRate);
+				args[EncodableValue("sampleRate")]  = EncodableValue(cfg.sampleRate);
+				args[EncodableValue("numChannels")] = EncodableValue(cfg.numChannels);
+				pChannel->InvokeMethod("onConfigChanged",
+					std::make_unique<EncodableValue>(EncodableMap(std::move(args))));
+			});
+
+			// Keep channels alive for the recorder lifetime so handler pointers
+			// held by the recorder remain valid.
+			m_state_event_channels.insert(std::make_pair(recorderId, std::move(eventChannel)));
+			m_record_event_channels.insert(std::make_pair(recorderId, std::move(eventRecordChannel)));
+			m_config_changed_channels.insert(std::make_pair(recorderId, std::move(configChangedChannel)));
 			m_recorders.insert(std::make_pair(recorderId, std::move(pRecorder)));
 		}
 
@@ -381,68 +400,4 @@ namespace record_windows {
 		return searchedRecorder->second.get();
 	}
 
-	HRESULT RecordWindowsPlugin::ListInputDevices(MethodResult<EncodableValue>& result)
-	{
-		EncodableList devices;
-
-		IMFAttributes* pDeviceAttributes = NULL;
-		IMFActivate** ppDevices = NULL;
-		UINT32 deviceCount = 0;
-
-		HRESULT hr = MFCreateAttributes(&pDeviceAttributes, 1);
-		if (SUCCEEDED(hr))
-		{
-			// Request audio capture devices
-			hr = pDeviceAttributes->SetGUID(
-				MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-				MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_GUID);
-		}
-
-		if (SUCCEEDED(hr))
-		{
-			hr = MFEnumDeviceSources(pDeviceAttributes, &ppDevices, &deviceCount);
-		}
-
-		for (UINT32 i = 0; i < deviceCount; i++)
-		{
-			LPWSTR friendlyName = NULL;
-			UINT32 friendlyNameLength = 0;
-			LPWSTR id;
-			UINT32 idLength = 0;
-
-			hr = ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ENDPOINT_ID, &id, &idLength);
-			if (SUCCEEDED(hr))
-			{
-				hr = ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &friendlyName, &friendlyNameLength);
-			}
-			if (SUCCEEDED(hr))
-			{
-				devices.push_back(EncodableMap({
-				{EncodableValue("id"), EncodableValue(toString(id))},
-				{EncodableValue("label"), EncodableValue(toString(friendlyName))}
-					}));
-
-				CoTaskMemFree(id);
-				CoTaskMemFree(friendlyName);
-			}
-		}
-
-		if (SUCCEEDED(hr))
-		{
-			result.Success(std::move(EncodableValue(devices)));
-		}
-		else
-		{
-			ErrorFromHR(hr, result);
-		}
-
-		for (UINT32 i = 0; i < deviceCount; i++)
-		{
-			SafeRelease(ppDevices[i]);
-		}
-		SafeRelease(pDeviceAttributes);
-		CoTaskMemFree(ppDevices);
-
-		return hr;
-	}
 }  // namespace record_windows

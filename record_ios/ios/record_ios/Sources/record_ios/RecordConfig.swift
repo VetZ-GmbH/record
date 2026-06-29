@@ -20,9 +20,9 @@ public enum AudioInterruptionMode: Int {
 
 public class RecordConfig {
   let encoder: String
-  let bitRate: Int
-  let sampleRate: Int
-  let numChannels: Int
+  var bitRate: Int
+  var sampleRate: Int
+  var numChannels: Int
   let device: Device?
   let autoGain: Bool
   let echoCancel: Bool
@@ -30,6 +30,14 @@ public class RecordConfig {
   let iosConfig: IosConfig
   let audioInterruption: AudioInterruptionMode
   let streamBufferSize: Int?
+
+  private var m_args: [String: Any] = [:]
+
+  var isModified: Bool {
+    bitRate    != (m_args["bitRate"]     as? Int ?? 128000) ||
+    sampleRate != (m_args["sampleRate"]  as? Int ?? 44100)  ||
+    numChannels != (m_args["numChannels"] as? Int ?? 2)
+  }
 
   init(encoder: String,
        bitRate: Int,
@@ -60,59 +68,108 @@ public class RecordConfig {
 public class Device {
   let id: String
   let label: String
+  let type: String
 
-  init(id: String, label: String) {
+  init(id: String, label: String, type: String = "unknown") {
     self.id = id
     self.label = label
+    self.type = type
   }
 
   init(map: [String: Any]) {
     self.id = map["id"] as! String
     self.label = map["label"] as! String
+    self.type = map["type"] as? String ?? "unknown"
   }
 
   func toMap() -> [String: Any] {
-    return [
-      "id": id,
-      "label": label
-    ]
+    return ["id": id, "label": label, "type": type]
   }
 }
 
 struct IosConfig {
   let categoryOptions: [AVAudioSession.CategoryOptions]
-  let manageAudioSession: Bool
+  let allowHapticsAndSystemSoundsDuringRecording: Bool
 
   init(map: [String: Any]) {
     let comps = map["categoryOptions"] as? String
     let options: [AVAudioSession.CategoryOptions]? = comps?.split(separator: ",").compactMap {
-      switch $0 {
-      case "mixWithOthers":
-        AVAudioSession.CategoryOptions.mixWithOthers
-      case "duckOthers":
-        AVAudioSession.CategoryOptions.duckOthers
-      case "allowBluetooth":
-        #if compiler(>=6.2)
-        // For XCode 26.0+, Swift 6.2 version
-        AVAudioSession.CategoryOptions.allowBluetoothHFP
-        #else
-        // Deprecated in 26.0, not 8.0. Thanks Apple!
-        AVAudioSession.CategoryOptions.allowBluetooth
-        #endif
-      case "defaultToSpeaker":
-        AVAudioSession.CategoryOptions.defaultToSpeaker
-      case "interruptSpokenAudioAndMixWithOthers":
-        AVAudioSession.CategoryOptions.interruptSpokenAudioAndMixWithOthers
-      case "allowBluetoothA2DP":
-        AVAudioSession.CategoryOptions.allowBluetoothA2DP
-      case "allowAirPlay":
-        AVAudioSession.CategoryOptions.allowAirPlay
-      case "overrideMutedMicrophoneInterruption":
-        if #available(iOS 14.5, *) { AVAudioSession.CategoryOptions.overrideMutedMicrophoneInterruption } else { nil }
-      default: nil
-      }
+      IosConfig.avCategoryOption(from: String($0))
     }
     self.categoryOptions = options ?? []
-    self.manageAudioSession = map["manageAudioSession"] as? Bool ?? true
+    self.allowHapticsAndSystemSoundsDuringRecording = map["allowHapticsAndSystemSoundsDuringRecording"] as? Bool ?? false
+  }
+
+  static func avCategory(from string: String) -> AVAudioSession.Category {
+    switch string {
+    case "ambient": return .ambient
+    case "playAndRecord": return .playAndRecord
+    case "playback": return .playback
+    case "record": return .record
+    case "soloAmbient": return .soloAmbient
+    default: return .playAndRecord
+    }
+  }
+
+  static func avCategoryOptions(from strings: [String]) -> AVAudioSession.CategoryOptions {
+    strings.reduce(into: AVAudioSession.CategoryOptions()) { result, s in
+      if let opt = avCategoryOption(from: s) { result.insert(opt) }
+    }
+  }
+
+  private static func avCategoryOption(from string: String) -> AVAudioSession.CategoryOptions? {
+    switch string {
+    case "mixWithOthers": return .mixWithOthers
+    case "duckOthers": return .duckOthers
+    case "interruptSpokenAudioAndMixWithOthers": return .interruptSpokenAudioAndMixWithOthers
+    case "allowBluetooth":
+      #if compiler(>=6.2)
+      return .allowBluetoothHFP
+      #else
+      return .allowBluetooth
+      #endif
+    case "allowBluetoothA2DP": return .allowBluetoothA2DP
+    case "allowAirPlay": return .allowAirPlay
+    case "defaultToSpeaker": return .defaultToSpeaker
+    case "overrideMutedMicrophoneInterruption":
+      if #available(iOS 14.5, *) { return .overrideMutedMicrophoneInterruption }
+      return nil
+    default: return nil
+    }
+  }
+}
+
+extension RecordConfig {
+  func toMap() -> [String: Any] {
+    var map = m_args
+    map["bitRate"] = bitRate
+    map["sampleRate"] = sampleRate
+    map["numChannels"] = numChannels
+    return map
+  }
+
+  static func fromMap(_ args: [String: Any]) throws -> RecordConfig {
+    guard let encoder = args["encoder"] as? String else {
+      throw RecorderError.error(message: "Call missing mandatory parameter encoder.", details: nil)
+    }
+    let device = (args["device"] as? [String: Any]).map(Device.init(map:))
+    let iosConfig = (args["iosConfig"] as? [String: Any]).map(IosConfig.init(map:)) ?? IosConfig(map: [:])
+    let audioInterruption = (args["audioInterruption"] as? Int)
+      .flatMap(AudioInterruptionMode.init(rawValue:)) ?? .pause
+    let config = RecordConfig(
+      encoder: encoder,
+      bitRate: args["bitRate"] as? Int ?? 128000,
+      sampleRate: args["sampleRate"] as? Int ?? 44100,
+      numChannels: args["numChannels"] as? Int ?? 2,
+      device: device,
+      autoGain: args["autoGain"] as? Bool ?? false,
+      echoCancel: args["echoCancel"] as? Bool ?? false,
+      noiseSuppress: args["noiseSuppress"] as? Bool ?? false,
+      iosConfig: iosConfig,
+      audioInterruption: audioInterruption,
+      streamBufferSize: args["streamBufferSize"] as? Int
+    )
+    config.m_args = args
+    return config
   }
 }

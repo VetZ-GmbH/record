@@ -18,7 +18,7 @@
 #include <mferror.h>
 
 #include "utils.h"
-#include "record.h"
+#include "record/record.h"
 #include <queue>
 
 using namespace flutter;
@@ -39,6 +39,7 @@ namespace record_windows {
 		static void RegisterWithRegistrar(flutter::PluginRegistrarWindows* registrar);
 
 		RecordWindowsPlugin(
+			BinaryMessenger* messenger,
 			WindowProcDelegateRegistrator registrator,
 			WindowProcDelegateUnregistrator unregistrator,
 			FlutterRootWindowProvider window_provider
@@ -61,7 +62,7 @@ namespace record_windows {
 		static void RunOnMainThread(std::function<void()> callback);
 
 	private:
-		static inline BinaryMessenger* m_binaryMessenger;
+		BinaryMessenger* m_binaryMessenger;
 
 		// Called when a method is called on this plugin's channel from Dart.
 		void HandleMethodCall(const MethodCall<EncodableValue>& method_call,
@@ -69,7 +70,6 @@ namespace record_windows {
 
 		HRESULT CreateRecorder(std::string recorderId);
 		Recorder* GetRecorder(std::string recorderId);
-		HRESULT ListInputDevices(MethodResult<EncodableValue>& result);
 
 		std::unique_ptr<RecordConfig> InitRecordConfig(const EncodableMap* args);
 
@@ -79,6 +79,11 @@ namespace record_windows {
 		// stored by Recorder remain valid while the recorder exists.
 		std::map<std::string, std::unique_ptr<EventChannel<EncodableValue>>> m_state_event_channels{};
 		std::map<std::string, std::unique_ptr<EventChannel<EncodableValue>>> m_record_event_channels{};
+		std::map<std::string, std::unique_ptr<MethodChannel<EncodableValue>>> m_config_changed_channels{};
+
+		// Shared liveness flag: set to false in the destructor so any lambdas
+		// still queued in RunOnMainThread that capture `this` can skip safely.
+		std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 
 		// Called for top-level WindowProc delegation.
 		std::optional<LRESULT> HandleWindowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam);

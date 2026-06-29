@@ -5,7 +5,7 @@ import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import com.llfbandit.record.record.RecordConfig
+import com.llfbandit.record.record.model.RecordConfig
 import com.llfbandit.record.record.container.IContainerWriter
 import com.llfbandit.record.record.format.Format
 import java.util.LinkedList
@@ -28,10 +28,12 @@ class MediaCodecEncoder(
   private var mInputBufferPosition: Long = 0
   private var mInputBufferIndex = -1
   private var mContainerTrack = 0
+  private var mContainerSetup = false
+  private var mPendingFormat: MediaFormat? = null
 
   // Semaphore to signal the end of encoding
-  private var mStoppedCompleter: Semaphore? = null
-  private var mStopped = false
+  @Volatile private var mStoppedCompleter: Semaphore? = null
+  @Volatile private var mStopped = false
 
   override fun encode(bytes: ByteArray) {
     if (mStopped) {
@@ -40,11 +42,9 @@ class MediaCodecEncoder(
 
     val s = Sample(bytes)
     mHandler?.post {
-      if (!mStopped) {
-        mQueue.add(s)
-        if (mInputBufferIndex >= 0) {
-          processInputBuffer()
-        }
+      mQueue.add(s)
+      if (mInputBufferIndex >= 0) {
+        processInputBuffer()
       }
     }
   }
@@ -62,8 +62,9 @@ class MediaCodecEncoder(
     mStopped = true
 
     val completer = Semaphore(0)
+    mStoppedCompleter = completer
+
     mHandler?.post {
-      mStoppedCompleter = completer
       if (mInputBufferIndex >= 0) {
         processInputBuffer()
       }
@@ -89,7 +90,7 @@ class MediaCodecEncoder(
       codec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
       codec.start()
 
-      container = format.getContainer(config.path)
+      container = format.createWriter(mediaFormat, config.path)
 
       mCodec = codec
       mContainer = container
@@ -144,13 +145,14 @@ class MediaCodecEncoder(
       val container = mContainer
 
       if (container != null && info.size != 0) {
-        // The CSD (Codec-specific Data) is passed to muxer in MediaFormat. So we ignore it.
-        val ignoreSample = container.ignoreCodecSpecificData() && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0
+        val isCsd = (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
 
-        if (!ignoreSample) {
+        if (isCsd) {
+          onCsdBuffer(codec, index, info, container)
+        } else {
           val out = codec.getOutputBuffer(index)
 
-          if (out != null) {
+          if (out != null && mContainerSetup) {
             if (container.isStream()) {
               listener.onEncoderStream(container.writeStream(mContainerTrack, out, info))
             } else {
@@ -170,6 +172,33 @@ class MediaCodecEncoder(
     }
   }
 
+  private fun onCsdBuffer(
+    codec: MediaCodec,
+    index: Int,
+    info: MediaCodec.BufferInfo,
+    container: IContainerWriter
+  ) {
+    val csd = codec.getOutputBuffer(index)?.let { out ->
+      out.position(info.offset)
+      out.limit(info.offset + info.size)
+      ByteArray(info.size).also { out.get(it) }
+    }
+    container.onCsdBuffer(csd)
+    trySetupContainer()
+  }
+
+  private fun trySetupContainer() {
+    if (mContainerSetup) return
+    val container = mContainer ?: return
+    val format = mPendingFormat ?: return
+    if (!container.isReadyForSetup(format)) return
+
+    mContainerSetup = true
+    mContainerTrack = container.addTrack(format)
+    container.start()
+    Log.d("MediaCodecEncoder", "Container setup done: $format")
+  }
+
   private fun onError(e: Exception) {
     mStopped = true
     stopAndRelease()
@@ -184,12 +213,8 @@ class MediaCodecEncoder(
       mCodec = null
     }
 
-    try {
-      mContainer?.stop()
-    } finally {
-      mContainer?.release()
-      mContainer = null
-    }
+    mContainer?.release()
+    mContainer = null
 
     mStoppedCompleter?.release()
     mStoppedCompleter = null
@@ -225,10 +250,10 @@ class MediaCodecEncoder(
     }
 
     override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) {
-      mContainerTrack = mContainer?.addTrack(format) ?: -1
-      mContainer?.start()
+      if (mContainerSetup) return
 
-      Log.d("MediaCodecEncoder", "Output format set: $format")
+      mPendingFormat = format
+      trySetupContainer()
     }
   }
 

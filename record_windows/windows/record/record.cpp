@@ -1,0 +1,519 @@
+#include "record/record.h"
+#include "audio_device/record_audio_device.h"
+#include "mediatype/record_mediatype.h"
+#include "record_windows_plugin.h"
+#include "encoder/aac_adts_encoder.h"
+#include "encoder/pcm_encoder.h"
+
+namespace record_windows
+{
+	// static
+	HRESULT Recorder::CreateInstance(EventStreamHandler<>* stateEventHandler, EventStreamHandler<>* recordEventHandler, Recorder** ppRecorder)
+	{
+		auto pRecorder = new (std::nothrow) Recorder(stateEventHandler, recordEventHandler);
+
+		if (pRecorder == NULL)
+		{
+			return E_OUTOFMEMORY;
+		}
+
+		// The Recorder constructor sets the ref count to 1.
+		*ppRecorder = pRecorder;
+
+		return S_OK;
+	}
+
+	Recorder::Recorder(EventStreamHandler<>* stateEventHandler, EventStreamHandler<>* recordEventHandler)
+		: m_nRefCount(1),
+		m_critsec(),
+		m_pConfig(nullptr),
+		m_pSource(NULL),
+		m_pReader(NULL),
+		m_pWriter(NULL),
+		m_pPresentationDescriptor(NULL),
+		m_stateEventHandler(stateEventHandler),
+		m_recordEventHandler(recordEventHandler),
+		m_recordingPath(std::wstring()),
+		m_pMediaType(NULL)
+	{
+		m_hFlushEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	}
+
+	Recorder::~Recorder()
+	{
+		Dispose();
+	}
+
+	void Recorder::SetOnConfigChanged(std::function<void(const RecordConfig&)> callback)
+	{
+		m_onConfigChanged = std::move(callback);
+	}
+
+	HRESULT Recorder::Start(std::unique_ptr<RecordConfig> config, std::wstring path)
+	{
+		bool supported = false;
+		HRESULT hr = AudioDevice::IsEncoderSupported(config->encoderName, &supported);
+
+		if (FAILED(hr) || !supported)
+		{
+			return E_NOTIMPL;
+		}
+
+		hr = InitRecording(std::move(config));
+
+		if (SUCCEEDED(hr))
+		{
+			m_recordingPath = path;
+			hr = CreateSinkWriter(path);
+		}
+		if (SUCCEEDED(hr))
+		{
+			// Request the first sample
+			hr = m_pReader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+				0,
+				NULL, NULL, NULL, NULL
+			);
+		}
+		if (SUCCEEDED(hr))
+		{
+			UpdateState(RecordState::record);
+		}
+		else
+		{
+			EndRecording();
+		}
+
+		return hr;
+	}
+
+	HRESULT Recorder::StartStream(std::unique_ptr<RecordConfig> config)
+	{
+		const auto& enc = config->encoderName;
+		const bool isAac = enc == AudioEncoder::aacLc;
+		const bool isPcm = enc == AudioEncoder::pcm16bits;
+
+		if (!isAac && !isPcm)
+		{
+			return E_NOTIMPL;
+		}
+
+		HRESULT hr = InitRecording(std::move(config));
+
+		if (SUCCEEDED(hr))
+		{
+			if (isAac)
+			{
+				AacAdtsEncoder* pEncoder = nullptr;
+				hr = AacAdtsEncoder::Create(*m_pConfig, &pEncoder);
+				if (SUCCEEDED(hr)) m_pStreamEncoder.reset(pEncoder);
+			}
+			else
+			{
+				m_pStreamEncoder = std::make_unique<PcmEncoder>();
+			}
+		}
+		if (SUCCEEDED(hr))
+		{
+			// Request the first sample
+			hr = m_pReader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+				0,
+				NULL, NULL, NULL, NULL
+			);
+		}
+		if (SUCCEEDED(hr))
+		{
+			UpdateState(RecordState::record);
+		}
+		else
+		{
+			EndRecording();
+		}
+
+		return hr;
+	}
+
+	HRESULT Recorder::InitRecording(std::unique_ptr<RecordConfig> config)
+	{
+		HRESULT hr = EndRecording();
+
+		if (SUCCEEDED(hr) && !m_mfStarted)
+		{
+			hr = MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET);
+		}
+		if (SUCCEEDED(hr))
+		{
+			m_mfStarted = true;
+			const int origSampleRate  = config->sampleRate;
+			const int origNumChannels = config->numChannels;
+			const int origBitRate     = config->bitRate;
+			AudioDevice::AdjustConfigToDeviceCaps(*config);
+			hr = AudioDevice::AdjustConfigToCodecCaps(*config);
+			if (SUCCEEDED(hr) && m_onConfigChanged &&
+				(config->sampleRate  != origSampleRate ||
+				 config->numChannels != origNumChannels ||
+				 config->bitRate     != origBitRate))
+			{
+				m_onConfigChanged(*config);
+			}
+		}
+		if (SUCCEEDED(hr))
+		{
+			m_pConfig = std::move(config);
+		}
+
+		if (SUCCEEDED(hr))
+		{
+			if (m_pConfig->deviceId.length() != 0)
+			{
+				auto deviceId = std::wstring(m_pConfig->deviceId.begin(), m_pConfig->deviceId.end());
+				hr = CreateAudioCaptureDevice(deviceId.c_str());
+			}
+			else
+			{
+				hr = CreateAudioCaptureDevice(NULL);
+			}
+		}
+		if (SUCCEEDED(hr))
+		{
+			hr = CreateSourceReaderAsync();
+		}
+
+		return hr;
+	}
+
+	HRESULT Recorder::Pause()
+	{
+		HRESULT hr = S_OK;
+
+		if (m_pSource)
+		{
+			hr = m_pSource->Pause();
+
+			if (SUCCEEDED(hr))
+			{
+				UpdateState(RecordState::pause);
+			}
+		}
+
+		return hr;
+	}
+
+	HRESULT Recorder::Resume()
+	{
+		HRESULT hr = S_OK;
+
+		if (m_pSource)
+		{
+			PROPVARIANT var;
+			PropVariantInit(&var);
+			var.vt = VT_EMPTY;
+
+			hr = m_pSource->Start(m_pPresentationDescriptor, NULL, &var);
+
+			if (SUCCEEDED(hr))
+			{
+				m_bResuming = true;
+			}
+		}
+
+		return hr;
+	}
+
+	HRESULT Recorder::Stop()
+	{
+		if (m_dataWritten == 0)
+		{
+			return Cancel();
+		}
+
+		HRESULT hr = EndRecording();
+
+		if (SUCCEEDED(hr))
+		{
+			UpdateState(RecordState::stop);
+		}
+
+		return hr;
+	}
+
+	HRESULT Recorder::Cancel()
+	{
+		auto recordingPath = GetRecordingPath();
+		HRESULT hr = EndRecording();
+
+		if (SUCCEEDED(hr))
+		{
+			UpdateState(RecordState::stop);
+
+			if (!recordingPath.empty())
+			{
+				DeleteFile(recordingPath.c_str());
+			}
+		}
+
+		return hr;
+	}
+
+	bool Recorder::IsPaused()
+	{
+		switch (m_recordState)
+		{
+		case RecordState::pause:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	bool Recorder::IsRecording()
+	{
+		switch (m_recordState)
+		{
+		case RecordState::record:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	HRESULT Recorder::EndRecording()
+	{
+		// Phase 1: signal stop and flush OUTSIDE the lock
+		// (OnReadSample takes the lock too — holding it here would deadlock).
+		IMFSourceReader* pReaderToFlush = nullptr;
+		{
+			AutoLock lock(m_critsec);
+			pReaderToFlush = m_pReader;
+			if (pReaderToFlush) pReaderToFlush->AddRef();
+		}
+
+		if (pReaderToFlush)
+		{
+			m_bStopping = true;
+			// Stop the source first — prevents new samples from being generated.
+			if (m_pSource) m_pSource->Stop();
+			// Flush drains pending OnReadSample callbacks before we release the reader.
+			pReaderToFlush->Flush((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+			// Wait for the OnFlush signal (2s timeout guards against edge-case hangs).
+			WaitForSingleObject(m_hFlushEvent, 2000);
+			SafeRelease(pReaderToFlush);
+		}
+
+		// Phase 2: clean up resources WITH the lock.
+		// Cleanup is best-effort — shutdown/finalize errors (e.g. MF_E_SHUTDOWN) are
+		// expected during teardown and must not surface to Dart as a PlatformException.
+		{
+			AutoLock lock(m_critsec);
+
+			SafeRelease(m_pReader);
+			m_recordEventHandler = nullptr;
+
+			if (m_pSource)
+			{
+				m_pSource->Shutdown();
+			}
+
+			if (m_pWriter)
+			{
+				m_pWriter->Finalize();
+			}
+
+			if (m_pConfig && m_pConfig->encoderName == AudioEncoder::wav) {
+				MediaType::FillWavHeader(m_recordingPath, m_pMediaType, m_dataWritten);
+			}
+
+			m_bFirstSample = true;
+			m_bResuming    = false;
+			m_llBaseTime   = 0;
+			m_llLastTime   = 0;
+
+			m_amplitude.reset();
+			m_dataWritten = 0;
+
+			m_pStreamEncoder.reset();
+
+			// NOTE: MFShutdown() lives in Dispose(), not here — calling it per
+			// start/stop cycle leaks MF internal state (~280 KB/cycle).
+
+			SafeRelease(m_pSource);
+			SafeRelease(m_pPresentationDescriptor);
+			SafeRelease(m_pWriter);
+			SafeRelease(m_pMediaType);
+			m_pConfig = nullptr;
+			m_recordingPath = std::wstring();
+
+			m_bStopping = false;
+
+			return S_OK;
+		}
+	}
+
+	HRESULT Recorder::Dispose()
+	{
+		HRESULT hr = EndRecording();
+
+		if (m_mfStarted)
+		{
+			MFShutdown();
+			m_mfStarted = false;
+		}
+
+		if (m_hFlushEvent)
+		{
+			CloseHandle(m_hFlushEvent);
+			m_hFlushEvent = NULL;
+		}
+
+		m_stateEventHandler = nullptr;
+		m_onConfigChanged = nullptr;
+
+		return hr;
+	}
+
+	void Recorder::UpdateState(RecordState state)
+	{
+		m_recordState = state;
+
+		if (m_stateEventHandler) {
+			// Capture raw pointer and check before calling. This is minimal and
+			// mirrors previous behavior with a quick null check on the main thread.
+			EventStreamHandler<>* handlerPtr = m_stateEventHandler;
+			RecordWindowsPlugin::RunOnMainThread([handlerPtr, state]() -> void {
+				handlerPtr->Success(std::make_unique<flutter::EncodableValue>(state));
+			});
+		}
+	}
+
+	HRESULT Recorder::CreateAudioCaptureDevice(LPCWSTR deviceId)
+	{
+		IMFAttributes* pAttributes = NULL;
+
+		HRESULT hr = MFCreateAttributes(&pAttributes, 2);
+
+		// Set the device type to audio.
+		if (SUCCEEDED(hr))
+		{
+			hr = pAttributes->SetGUID(
+				MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+				MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_GUID
+			);
+		}
+
+		// Set the endpoint ID.
+		if (SUCCEEDED(hr) && deviceId)
+		{
+			hr = pAttributes->SetString(
+				MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ENDPOINT_ID,
+				deviceId
+			);
+		}
+
+		// Create the source
+		if (SUCCEEDED(hr))
+		{
+			hr = MFCreateDeviceSource(pAttributes, &m_pSource);
+		}
+		// Create presentation descriptor to handle Resume action
+		if (SUCCEEDED(hr))
+		{
+			hr = m_pSource->CreatePresentationDescriptor(&m_pPresentationDescriptor);
+		}
+
+		SafeRelease(&pAttributes);
+		return hr;
+	}
+
+	HRESULT Recorder::CreateSourceReaderAsync()
+	{
+		HRESULT hr = S_OK;
+		IMFAttributes* pAttributes = NULL;
+		IMFMediaType* pMediaTypeIn = NULL;
+
+		hr = MFCreateAttributes(&pAttributes, 1);
+		if (SUCCEEDED(hr))
+		{
+			hr = pAttributes->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, this);
+		}
+		if (SUCCEEDED(hr))
+		{
+			hr = MFCreateSourceReaderFromMediaSource(m_pSource, pAttributes, &m_pReader);
+		}
+		if (SUCCEEDED(hr))
+		{
+			hr = MediaType::CreateInputProfile(*m_pConfig, &pMediaTypeIn);
+		}
+		if (SUCCEEDED(hr))
+		{
+			hr = m_pReader->SetCurrentMediaType(0, NULL, pMediaTypeIn);
+		}
+
+		SafeRelease(&pMediaTypeIn);
+		SafeRelease(&pAttributes);
+		return hr;
+	}
+
+	HRESULT Recorder::CreateSinkWriter(std::wstring path)
+	{
+		IMFSinkWriter* pSinkWriter = NULL;
+		IMFMediaType* pMediaTypeOut = NULL;
+		IMFMediaType* pMediaTypeIn = NULL;
+		DWORD          streamIndex = 0;
+
+		HRESULT hr = MFCreateSinkWriterFromURL(path.c_str(), NULL, NULL, &pSinkWriter);
+
+		// Set the output media type.
+		if (SUCCEEDED(hr))
+		{
+			hr = MediaType::CreateOutputProfile(*m_pConfig, &pMediaTypeOut);
+		}
+		if (SUCCEEDED(hr))
+		{
+			hr = pSinkWriter->AddStream(pMediaTypeOut, &streamIndex);
+		}
+
+		// Set the input media type.
+		if (SUCCEEDED(hr))
+		{
+			hr = m_pReader->GetCurrentMediaType(streamIndex, &pMediaTypeIn);
+		}
+		if (SUCCEEDED(hr))
+		{
+			hr = pSinkWriter->SetInputMediaType(streamIndex, pMediaTypeIn, NULL);
+		}
+
+		// Tell the sink writer to Start accepting data.
+		if (SUCCEEDED(hr))
+		{
+			hr = pSinkWriter->BeginWriting();
+		}
+
+		if (SUCCEEDED(hr))
+		{
+			m_pWriter = pSinkWriter;
+			m_pWriter->AddRef();
+			m_pMediaType = pMediaTypeOut;
+			m_pMediaType->AddRef();
+		}
+
+		SafeRelease(&pSinkWriter);
+		SafeRelease(&pMediaTypeOut);
+		SafeRelease(&pMediaTypeIn);
+
+		return hr;
+	}
+
+	std::map<std::string, double> Recorder::GetAmplitude()
+	{
+		AutoLock lock(m_critsec);
+		return {
+			{"current", m_amplitude.current},
+			{"max"    , m_amplitude.peak},
+		};
+	}
+
+	std::wstring Recorder::GetRecordingPath()
+	{
+		return m_recordingPath;
+	}
+
+};

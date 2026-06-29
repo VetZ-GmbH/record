@@ -5,10 +5,10 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
-import com.llfbandit.record.Utils
-import com.llfbandit.record.record.AudioEncoder
-import com.llfbandit.record.record.RecordConfig
-import com.llfbandit.record.record.RecordState
+import com.llfbandit.record.record.util.Utils
+import com.llfbandit.record.record.model.AudioEncoder
+import com.llfbandit.record.record.model.RecordConfig
+import com.llfbandit.record.record.model.RecordState
 import com.llfbandit.record.record.stream.RecorderStateStreamHandler
 import java.io.IOException
 import kotlin.math.log10
@@ -103,7 +103,8 @@ class MediaRecorder(
     var current = -160.0
 
     if (mIsRecording) {
-      current = 20 * log10(mRecorder!!.maxAmplitude / 32768.0)
+      val maxAmplitude = mRecorder!!.maxAmplitude
+      current = if (maxAmplitude == 0) -160.0 else 20 * log10(maxAmplitude / 32768.0)
 
       if (current > mMaxAmplitude) {
         mMaxAmplitude = current

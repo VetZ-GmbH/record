@@ -1,3 +1,16 @@
+## 2.1.0
+* feat: Improve InputDevice description with sample rates.
+* fix: codec/device caps and surface `onConfigChanged` to dart side.
+* fix: Missing await on _startFfmpegWithAmplitudeMonitoring.
+* fix: Ensures EOF reaches ffmpeg.
+* fix: `dispose()` closes the state stream before calling `stop()`.
+* fix: `_parseInputDevices` truncates device names containing colons.
+* fix: pcm16bits support for file output.
+* fix: Code style improvements.
+
+## 2.0.0
+* chore: Updates minimum supported SDK version to Flutter 3.44/Dart 3.12.
+
 ## 1.3.1
 * fix: Overriding the locale of `pactl` command for consistent parsing.
 

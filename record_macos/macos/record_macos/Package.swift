@@ -12,10 +12,15 @@ let package = Package(
         // If the plugin name contains "_", replace with "-" for the library name.
         .library(name: "record-macos", targets: ["record_macos"])
     ],
-    dependencies: [],
+    dependencies: [
+        .package(name: "FlutterFramework", path: "../FlutterFramework")
+    ],
     targets: [
         .target(
             name: "record_macos",
+            dependencies: [
+                .product(name: "FlutterFramework", package: "FlutterFramework")
+            ],
             path: "Sources/record_macos",
             resources: [
                 .process("Resources")

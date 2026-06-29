@@ -33,12 +33,12 @@ External dependencies:
 | aacLc           | ✔️            |   ✔️    |  ?      |   ✔️    |  ✔️    |  ✔️ 
 | aacEld          | ✔️            |   ✔️    |   ?     |         |  ✔️    | 
 | aacHe           | ✔️            |         |   ?     |         |         |   
-| amrNb           | ✔️            |         |  ?      |   ✔️    |         |  
+| amrNb           | ✔️            |   ✔️     |  ?      |   ✔️    |         |  
 | amrWb           | ✔️            |         |  ?      |          |        |  
 | opus            | ✔️            |   ✔️ 4    |  ?       |         |         |  ✔️ 
 | wav             | ✔️ 2          |   ✔️    |   ✔️   |    ✔️    |   ✔️  |   ✔️ 
 | flac            | ✔️ 2          |    ✔️    |  ?     |  ✔️     |   ✔️   |   ✔️
-| pcm16bits       | ✔️ 2          |   ✔️    |  ✔️    |   ✔️    |  ✔️    |  
+| pcm16bits       | ✔️ 2          |   ✔️    |  ✔️    |   ✔️    |  ✔️    |  ✔️
 
 ?: from my testings:
 | Encoder         | Firefox    | Chrome based   | Safari
@@ -53,10 +53,10 @@ External dependencies:
 wav and pcm16bits are provided by the package directly.
 
 ## Stream
-| Encoder         | Android    | iOS     | web     | Windows | macOS   | linux
-|-----------------|------------|---------|---------|---------|---------|---------
-| aacLc       *   | ✔️ 2      |  ✔️       |          |         |  ✔️       |  
-| pcm16bits       | ✔️ 2      |  ✔️    |   ✔️    |  ✔️     | ✔️     | ✔️
+| Encoder       | Android | iOS | web | Windows | macOS | linux |
+|---------------|---------|-----|-----|---------|-------|-------|
+| aacLc       * | ✔️ 2   | ✔️  |     | ✔️     | ✔️    |       |
+| pcm16bits     | ✔️ 2   | ✔️  | ✔️  | ✔️     | ✔️   | ✔️    |
 
 \* AAC is streamed with raw AAC with ADTS headers, so it's directly readable through a file!  
 1. Bluetooth telephony device link (SCO) is automatically done but there's no phone call management.
@@ -89,10 +89,10 @@ record.dispose(); // As always, don't forget this one.
 
 ## Setup, permissions and others
 
-Background recording: See [docs](https://github.com/llfbandit/record/blob/master/doc/bg_recording.md).
+Background recording: See [docs](https://github.com/llfbandit/record/blob/main/doc/bg_recording.md).
 
 ### Android
-[Setup](https://github.com/llfbandit/record/blob/master/record_android/README.md).
+[Setup](https://github.com/llfbandit/record/blob/main/record_android/README.md).
 
 - min SDK: 23 (amrNb/amrWb: 26, Opus: 29)
 
