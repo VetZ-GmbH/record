@@ -1,3 +1,6 @@
+## 2.2.1
+* fix: No PCM data reached Dart when streaming — `EndRecording` (run at the start of every recording via `InitRecording`) nulled the record event handler and it was never restored. Restore it in `StartStream`, mirroring the upstream fix.
+
 ## 2.2.0
 * feat: Add AAC-ADTS streaming.
 * chore: Code improvements / various fixes.
