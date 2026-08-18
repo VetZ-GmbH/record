@@ -33,9 +33,11 @@ namespace record_windows
 		m_pPresentationDescriptor(NULL),
 		m_stateEventHandler(stateEventHandler),
 		m_recordEventHandler(recordEventHandler),
+		m_recordEventHandlerOrigin(recordEventHandler),
 		m_recordingPath(std::wstring()),
 		m_pMediaType(NULL)
 	{
+		m_hFlushEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 	}
 
 	Recorder::~Recorder()
@@ -98,6 +100,12 @@ namespace record_windows
 
 		HRESULT hr = InitRecording(std::move(config));
 
+		if (SUCCEEDED(hr))
+		{
+			// EndRecording (called inside InitRecording) nulls m_recordEventHandler to guard
+			// against in-flight callbacks after stop. Restore it here before samples arrive.
+			m_recordEventHandler = m_recordEventHandlerOrigin;
+		}
 		if (SUCCEEDED(hr))
 		{
 			if (isAac)
@@ -277,68 +285,94 @@ namespace record_windows
 
 	HRESULT Recorder::EndRecording()
 	{
-		AutoLock lock(m_critsec);
-		HRESULT hr = S_OK;
-
-		// Release reader callback first; null the stream handler under the lock
-		// so no in-flight OnReadSample can queue a lambda with a stale pointer.
-		SafeRelease(m_pReader);
-		m_recordEventHandler = nullptr;
-
-		if (m_pSource)
+		// Phase 1: signal stop and flush OUTSIDE the lock
+		// (OnReadSample takes the lock too — holding it here would deadlock).
+		IMFSourceReader* pReaderToFlush = nullptr;
 		{
-			hr = m_pSource->Stop();
+			AutoLock lock(m_critsec);
+			pReaderToFlush = m_pReader;
+			if (pReaderToFlush) pReaderToFlush->AddRef();
+		}
 
-			if (SUCCEEDED(hr))
+		if (pReaderToFlush)
+		{
+			m_bStopping = true;
+			// Stop the source first — prevents new samples from being generated.
+			if (m_pSource) m_pSource->Stop();
+			// Flush drains pending OnReadSample callbacks before we release the reader.
+			pReaderToFlush->Flush((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+			// Wait for the OnFlush signal (2s timeout guards against edge-case hangs).
+			WaitForSingleObject(m_hFlushEvent, 2000);
+			SafeRelease(pReaderToFlush);
+		}
+
+		// Phase 2: clean up resources WITH the lock.
+		// Cleanup is best-effort — shutdown/finalize errors (e.g. MF_E_SHUTDOWN) are
+		// expected during teardown and must not surface to Dart as a PlatformException.
+		{
+			AutoLock lock(m_critsec);
+
+			SafeRelease(m_pReader);
+			m_recordEventHandler = nullptr;
+
+			if (m_pSource)
 			{
-				hr = m_pSource->Shutdown();
+				m_pSource->Shutdown();
 			}
-		}
 
-		if (m_pWriter)
-		{
-			HRESULT hrFinalize = m_pWriter->Finalize();
-			if (SUCCEEDED(hr)) hr = hrFinalize;
-		}
-
-		if (m_pConfig && m_pConfig->encoderName == AudioEncoder::wav) {
-			MediaType::FillWavHeader(m_recordingPath, m_pMediaType, m_dataWritten);
-		}
-
-		m_bFirstSample = true;
-		m_bResuming    = false;
-		m_llBaseTime   = 0;
-		m_llLastTime   = 0;
-
-		m_amplitude.reset();
-		m_dataWritten = 0;
-
-		m_pStreamEncoder.reset();
-
-		if (m_mfStarted)
-		{
-			hr = MFShutdown();
-			if (SUCCEEDED(hr))
+			if (m_pWriter)
 			{
-				m_mfStarted = false;
+				m_pWriter->Finalize();
 			}
+
+			if (m_pConfig && m_pConfig->encoderName == AudioEncoder::wav) {
+				MediaType::FillWavHeader(m_recordingPath, m_pMediaType, m_dataWritten);
+			}
+
+			m_bFirstSample = true;
+			m_bResuming    = false;
+			m_llBaseTime   = 0;
+			m_llLastTime   = 0;
+
+			m_amplitude.reset();
+			m_dataWritten = 0;
+
+			m_pStreamEncoder.reset();
+
+			// NOTE: MFShutdown() lives in Dispose(), not here — calling it per
+			// start/stop cycle leaks MF internal state (~280 KB/cycle).
+
+			SafeRelease(m_pSource);
+			SafeRelease(m_pPresentationDescriptor);
+			SafeRelease(m_pWriter);
+			SafeRelease(m_pMediaType);
+			m_pConfig = nullptr;
+			m_recordingPath = std::wstring();
+
+			m_bStopping = false;
+
+			return S_OK;
 		}
-
-		SafeRelease(m_pSource);
-		SafeRelease(m_pPresentationDescriptor);
-		SafeRelease(m_pWriter);
-		SafeRelease(m_pMediaType);
-		m_pConfig = nullptr;
-		m_recordingPath = std::wstring();
-
-		return hr;
 	}
 
 	HRESULT Recorder::Dispose()
 	{
 		HRESULT hr = EndRecording();
 
+		if (m_mfStarted)
+		{
+			MFShutdown();
+			m_mfStarted = false;
+		}
+
+		if (m_hFlushEvent)
+		{
+			CloseHandle(m_hFlushEvent);
+			m_hFlushEvent = NULL;
+		}
+
 		m_stateEventHandler = nullptr;
+		m_recordEventHandlerOrigin = nullptr;
 		m_onConfigChanged = nullptr;
 
 		return hr;

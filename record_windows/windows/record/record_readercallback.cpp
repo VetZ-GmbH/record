@@ -4,7 +4,13 @@
 namespace record_windows
 {
 	STDMETHODIMP Recorder::OnEvent(DWORD, IMFMediaEvent*) { return S_OK; }
-	STDMETHODIMP Recorder::OnFlush(DWORD) { return S_OK; }
+
+	STDMETHODIMP Recorder::OnFlush(DWORD)
+	{
+		// Signal EndRecording() Phase 1 that pending callbacks have drained.
+		SetEvent(m_hFlushEvent);
+		return S_OK;
+	}
 
 	HRESULT Recorder::OnReadSample(
 		HRESULT hrStatus,
@@ -31,7 +37,8 @@ namespace record_windows
 			hr = ProcessSample(dwStreamIndex, llTimestamp, pSample);
 		}
 
-		if (SUCCEEDED(hr) && m_pReader)
+		// Suppress re-queue during the flush window (EndRecording set m_bStopping).
+		if (SUCCEEDED(hr) && m_pReader && !m_bStopping)
 		{
 			hr = m_pReader->ReadSample(
 				(DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, NULL, NULL, NULL, NULL);
