@@ -4,6 +4,9 @@
 #include "record/sink/stream_sink.h"
 #include "utils.h"
 
+#include <cstdio>
+#include <system_error>
+
 namespace record_windows
 {
 	Recorder::Recorder(std::shared_ptr<RecorderDispatcher> dispatcher, RecorderCallbacks callbacks,
@@ -381,13 +384,21 @@ namespace record_windows
 		m_pRouteWatch->Stop();
 		m_engine->Close();
 
-		HRESULT hr = S_OK;
-
 		if (m_pSink)
 		{
 			// Finalize fails with E_UNEXPECTED on a take that never got a sample.
 			if (discard) m_pSink->Discard();
-			else hr = m_pSink->Finalize();
+			else
+			{
+				// Teardown is best-effort: the take has already stopped, so a finalize error
+				// (e.g. MF_E_SHUTDOWN) must not surface to Dart as a PlatformException.
+				HRESULT hr = m_pSink->Finalize();
+				if (FAILED(hr))
+				{
+					auto errorText = std::system_category().message(hr);
+					printf("Record: Error on finalize (0x%X)\n%s\n", hr, errorText.c_str());
+				}
+			}
 			m_pSink.reset();
 		}
 
@@ -401,7 +412,7 @@ namespace record_windows
 		m_pConfig = nullptr;
 		m_deviceId.clear();
 
-		return hr;
+		return S_OK;
 	}
 
 	HRESULT Recorder::Dispose()
