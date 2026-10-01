@@ -4,6 +4,9 @@
 #include "encoder/aac_adts_encoder.h"
 #include "encoder/pcm_encoder.h"
 
+#include <cstdio>
+#include <system_error>
+
 namespace record_windows
 {
 	Recorder::Recorder(std::shared_ptr<RecorderDispatcher> dispatcher, RecorderCallbacks callbacks)
@@ -244,8 +247,6 @@ namespace record_windows
 
 	HRESULT Recorder::EndRecording()
 	{
-		HRESULT hr = S_OK;
-
 		SafeRelease(m_pReader);
 		// MF may still deliver from this reader: drop rather than mix into a next take.
 		if (m_pReaderCallback)
@@ -261,9 +262,16 @@ namespace record_windows
 			m_pSource->Shutdown();
 		}
 
+		// Teardown is best-effort: the take has already stopped, so a finalize error
+		// (e.g. MF_E_SHUTDOWN) must not surface to Dart as a PlatformException.
 		if (m_pWriter)
 		{
-			hr = m_pWriter->Finalize();
+			HRESULT hr = m_pWriter->Finalize();
+			if (FAILED(hr))
+			{
+				auto errorText = std::system_category().message(hr);
+				printf("Record: Error on finalize (0x%X)\n%s\n", hr, errorText.c_str());
+			}
 		}
 
 		if (m_pConfig && m_pConfig->encoderName == AudioEncoder::wav) {
@@ -287,7 +295,7 @@ namespace record_windows
 		m_pConfig = nullptr;
 		m_recordingPath = std::wstring();
 
-		return hr;
+		return S_OK;
 	}
 
 	HRESULT Recorder::Dispose()
